@@ -54,11 +54,30 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
+  withSpring,
   withTiming,
 } from "react-native-reanimated";
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Rect, Stop } from "react-native-svg";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { MarkdownRenderer, type MarkdownStyles } from "@/components/markdown/renderer";
+import { ExpandableBadgeCollapseClip } from "@/components/badge-collapse-clip";
+import {
+  ChatGrowthClip,
+  chatLayoutTransition,
+  ChatEntryMotion,
+} from "@/agent-stream/chat-entry-motion";
+import { StreamFadeMarkdownContent, StreamWordFade } from "@/agent-stream/stream-word-fade";
+import { GrowingLabel } from "@/components/growing-label";
+import { useRetainedShimmerMetrics } from "@/components/expandable-badge-shimmer";
+import {
+  MOTION_CROSSFADE_TIMING,
+  MOTION_HOVER_SCALE,
+  MOTION_HOVER_TIMING,
+  MOTION_MICRO_OFFSET_PX,
+  MOTION_PRESS_SCALE,
+  MOTION_PRESS_SPRING,
+  motionStaggerDelayMs,
+} from "@/styles/motion";
 import type { TaskActivity, TodoEntry, UserMessageImageAttachment } from "@/types/stream";
 import type { AgentAttachment } from "@getpaseo/protocol/messages";
 import type { ToolCallDetail } from "@getpaseo/protocol/agent-types";
@@ -67,6 +86,7 @@ import { resolveToolCallIcon } from "@/utils/tool-call-icon";
 import { getMarkdownListMarker, getMarkdownListSpacing } from "@/utils/markdown-list";
 import { markdownNodeContainsType } from "@/utils/markdown-ast";
 import { useStableEvent } from "@/hooks/use-stable-event";
+import { useAnimationsEnabled } from "@/hooks/use-settings";
 import { HighlightedCodeBlock } from "@/components/highlighted-code-block";
 import { MarkdownFenceBlock } from "@/components/markdown/fence";
 import type { MarkdownPhase } from "@/components/markdown/fence/types";
@@ -229,6 +249,12 @@ function ensureWebToolCallShimmerKeyframes() {
   webToolCallShimmerRegistered = true;
 }
 
+// Register at module scope so the keyframes exist before the first shimmer
+// overlay paints. A useEffect fires after paint, which raced the overlay's
+// `animation: paseo-toolcall-shimmer` against a not-yet-defined @keyframes
+// rule and left the sweep stuck instead of animating across the label.
+ensureWebToolCallShimmerKeyframes();
+
 function getWheelEventElementTarget(event: WheelEvent, fallback: HTMLElement): HTMLElement {
   const { target } = event;
   if (target instanceof HTMLElement) {
@@ -340,6 +366,11 @@ const userMessageStylesheet = StyleSheet.create((theme) => ({
     maxWidth: "100%",
     cursor: "auto",
   },
+  contentExpanded: {
+    alignSelf: "stretch",
+    width: "100%",
+    alignItems: "stretch",
+  },
   containerSpacing: {
     marginBottom: theme.spacing[1],
   },
@@ -357,6 +388,10 @@ const userMessageStylesheet = StyleSheet.create((theme) => ({
     paddingVertical: theme.spacing[4],
     minWidth: 0,
     flexShrink: 1,
+  },
+  bubbleExpanded: {
+    alignSelf: "stretch",
+    width: "100%",
   },
   text: {
     color: theme.colors.foreground,
@@ -377,6 +412,10 @@ const userMessageStylesheet = StyleSheet.create((theme) => ({
     flexDirection: "row",
     gap: theme.spacing[2],
     flexWrap: "wrap",
+  },
+  attachmentPreviewExpanded: {
+    alignSelf: "stretch",
+    width: "100%",
   },
   imagePreviewSpacing: {
     marginBottom: theme.spacing[2],
@@ -425,6 +464,30 @@ function UserMessageImagePill({ image, onOpen, accessibilityLabel }: UserMessage
   );
 }
 
+function UserMessageAttachmentFrame({
+  stretchId,
+  onStretchChange,
+  details,
+  testID,
+  children,
+}: {
+  stretchId: string;
+  onStretchChange: (id: string, stretch: boolean) => void;
+  details?: string | null;
+  testID?: string;
+  children: ReactNode;
+}) {
+  const handleStretchChange = useCallback(
+    (stretch: boolean) => onStretchChange(stretchId, stretch),
+    [onStretchChange, stretchId],
+  );
+  return (
+    <AttachmentFrame details={details} testID={testID} onStretchChange={handleStretchChange}>
+      {children}
+    </AttachmentFrame>
+  );
+}
+
 const MESSAGE_TEXT_DATASET = { messageText: "true" };
 
 export const UserMessage = memo(function UserMessage({
@@ -462,6 +525,21 @@ export const UserMessage = memo(function UserMessage({
   );
   const rewindMutation = useRewindAgentMutation({ serverId, agentId, client, messageId });
 
+  const stretchingIdsRef = useRef(new Set<string>());
+  const [shellStretch, setShellStretch] = useState(false);
+  const handleAttachmentStretchChange = useCallback((id: string, stretch: boolean) => {
+    const ids = stretchingIdsRef.current;
+    if (stretch === ids.has(id)) {
+      return;
+    }
+    if (stretch) {
+      ids.add(id);
+    } else {
+      ids.delete(id);
+    }
+    setShellStretch(ids.size > 0);
+  }, []);
+
   const handlePointerEnter = useCallback(() => setIsHovered(true), []);
   const handlePointerLeave = useCallback(() => setIsHovered(false), []);
   const getMessageContent = useCallback(() => message, [message]);
@@ -494,8 +572,23 @@ export const UserMessage = memo(function UserMessage({
     () => [
       userMessageStylesheet.attachmentPreviewContainer,
       hasText ? userMessageStylesheet.imagePreviewSpacing : undefined,
+      shellStretch ? userMessageStylesheet.attachmentPreviewExpanded : undefined,
     ],
-    [hasText],
+    [hasText, shellStretch],
+  );
+  const contentStyle = useMemo(
+    () => [
+      userMessageStylesheet.content,
+      shellStretch ? userMessageStylesheet.contentExpanded : undefined,
+    ],
+    [shellStretch],
+  );
+  const bubbleStyle = useMemo(
+    () => [
+      userMessageStylesheet.bubble,
+      shellStretch ? userMessageStylesheet.bubbleExpanded : undefined,
+    ],
+    [shellStretch],
   );
   const trailingRowStyle = useMemo(
     () => [
@@ -508,13 +601,18 @@ export const UserMessage = memo(function UserMessage({
   );
 
   return (
-    <View style={containerStyle} testID="user-message" aria-busy={isPending}>
+    <Animated.View
+      style={containerStyle}
+      layout={chatLayoutTransition()}
+      testID="user-message"
+      aria-busy={isPending}
+    >
       <View
-        style={userMessageStylesheet.content}
+        style={contentStyle}
         onPointerEnter={handlePointerEnter}
         onPointerLeave={handlePointerLeave}
       >
-        <View style={userMessageStylesheet.bubble}>
+        <View style={bubbleStyle}>
           {hasImages ? (
             <View style={imagePreviewContainerStyle}>
               {images.map((image) => (
@@ -531,16 +629,21 @@ export const UserMessage = memo(function UserMessage({
             <View style={attachmentPreviewContainerStyle}>
               {attachments.map((attachment, index) => {
                 const content = getAgentAttachmentPillContent(attachment, t);
+                const stretchId = `${attachment.type}:${"number" in attachment ? attachment.number : index}`;
                 return (
-                  <AttachmentFrame
-                    key={`${attachment.type}:${"number" in attachment ? attachment.number : index}`}
+                  <UserMessageAttachmentFrame
+                    key={stretchId}
+                    stretchId={stretchId}
+                    onStretchChange={handleAttachmentStretchChange}
+                    details={renderPromptAttachmentAsText(attachment)}
+                    testID="user-message-attachment-pill"
                   >
                     <AttachmentLabel
                       icon={content.icon}
                       title={content.title}
                       subtitle={content.subtitle}
                     />
-                  </AttachmentFrame>
+                  </UserMessageAttachmentFrame>
                 );
               })}
             </View>
@@ -577,7 +680,7 @@ export const UserMessage = memo(function UserMessage({
         ) : null}
       </View>
       <AttachmentLightbox source={lightboxSource} onClose={handleLightboxClose} />
-    </View>
+    </Animated.View>
   );
 });
 
@@ -586,6 +689,7 @@ interface AssistantTurnFooterProps {
   completedAt?: Date;
   durationMs?: number | null;
   onFork?: (target: AssistantForkTarget) => Promise<void> | void;
+  animateChrome?: boolean;
 }
 
 const assistantTurnFooterStylesheet = StyleSheet.create((theme) => ({
@@ -630,6 +734,7 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
   completedAt,
   durationMs,
   onFork,
+  animateChrome = false,
 }: AssistantTurnFooterProps) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
@@ -682,30 +787,55 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
 
   return (
     <View style={assistantTurnFooterStylesheet.container}>
-      <TurnCopyButton
-        getContent={getContent}
-        containerStyle={assistantTurnFooterStylesheet.copyButton}
-      />
-      {canFork ? <AssistantForkMenu onFork={handleFork} /> : null}
-      {primaryLabel ? (
-        <Pressable
-          onPress={handlePress}
-          onHoverIn={handleHoverIn}
-          onHoverOut={handleHoverOut}
-          accessibilityRole={canSwap ? "button" : undefined}
-          accessibilityLabel={canSwap ? `${durationLabel}, ended ${timestampLabel}` : primaryLabel}
+      <ChatEntryMotion
+        animateOnMount={animateChrome}
+        offsetPx={MOTION_MICRO_OFFSET_PX}
+        delayMs={motionStaggerDelayMs(0)}
+        origin="bottom-left"
+      >
+        <TurnCopyButton
+          getContent={getContent}
+          containerStyle={assistantTurnFooterStylesheet.copyButton}
+        />
+      </ChatEntryMotion>
+      {canFork ? (
+        <ChatEntryMotion
+          animateOnMount={animateChrome}
+          offsetPx={MOTION_MICRO_OFFSET_PX}
+          delayMs={motionStaggerDelayMs(1)}
+          origin="bottom-left"
         >
-          <View style={assistantTurnFooterStylesheet.labelWrapper}>
-            {/* Sizer reserves space for whichever label is longer so the
+          <AssistantForkMenu onFork={handleFork} />
+        </ChatEntryMotion>
+      ) : null}
+      {primaryLabel ? (
+        <ChatEntryMotion
+          animateOnMount={animateChrome}
+          offsetPx={MOTION_MICRO_OFFSET_PX}
+          delayMs={motionStaggerDelayMs(canFork ? 2 : 1)}
+          origin="bottom-left"
+        >
+          <Pressable
+            onPress={handlePress}
+            onHoverIn={handleHoverIn}
+            onHoverOut={handleHoverOut}
+            accessibilityRole={canSwap ? "button" : undefined}
+            accessibilityLabel={
+              canSwap ? `${durationLabel}, ended ${timestampLabel}` : primaryLabel
+            }
+          >
+            <View style={assistantTurnFooterStylesheet.labelWrapper}>
+              {/* Sizer reserves space for whichever label is longer so the
                 container width is stable across hover transitions. */}
-            <Text style={assistantTurnFooterStylesheet.labelSizer} aria-hidden>
-              {primaryLabel.length >= timestampLabel.length ? primaryLabel : timestampLabel}
-            </Text>
-            <Text style={assistantTurnFooterStylesheet.labelOverlay}>
-              {showTimestamp ? timestampLabel : primaryLabel}
-            </Text>
-          </View>
-        </Pressable>
+              <Text style={assistantTurnFooterStylesheet.labelSizer} aria-hidden>
+                {primaryLabel.length >= timestampLabel.length ? primaryLabel : timestampLabel}
+              </Text>
+              <Text style={assistantTurnFooterStylesheet.labelOverlay}>
+                {showTimestamp ? timestampLabel : primaryLabel}
+              </Text>
+            </View>
+          </Pressable>
+        </ChatEntryMotion>
       ) : null}
     </View>
   );
@@ -779,6 +909,11 @@ export const assistantMessageStylesheet = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.base,
     fontStyle: "italic",
     color: theme.colors.foregroundMuted,
+  },
+  streamToken: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.content,
+    lineHeight: Math.round(theme.fontSize.content * 1.4),
   },
   imageFrame: {
     width: "100%",
@@ -1041,6 +1176,10 @@ export const TurnCopyButton = memo(function TurnCopyButton({
 }: TurnCopyButtonProps) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
+  const hoveredRef = useRef(false);
+  const scale = useSharedValue(1);
+  const copyOpacity = useSharedValue(1);
+  const checkOpacity = useSharedValue(0);
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleCopy = useCallback(async () => {
@@ -1063,6 +1202,11 @@ export const TurnCopyButton = memo(function TurnCopyButton({
   }, [getContent]);
 
   useEffect(() => {
+    copyOpacity.value = withTiming(copied ? 0 : 1, MOTION_CROSSFADE_TIMING);
+    checkOpacity.value = withTiming(copied ? 1 : 0, MOTION_CROSSFADE_TIMING);
+  }, [checkOpacity, copied, copyOpacity]);
+
+  useEffect(() => {
     return () => {
       if (copyTimeoutRef.current) {
         clearTimeout(copyTimeoutRef.current);
@@ -1070,14 +1214,52 @@ export const TurnCopyButton = memo(function TurnCopyButton({
     };
   }, []);
 
+  const restScale = useCallback(() => {
+    const next = isWeb && hoveredRef.current ? MOTION_HOVER_SCALE : 1;
+    scale.value = withSpring(next, MOTION_PRESS_SPRING);
+  }, [scale]);
+
+  const handleHoverIn = useCallback(() => {
+    hoveredRef.current = true;
+    if (!isWeb) {
+      return;
+    }
+    scale.value = withTiming(MOTION_HOVER_SCALE, MOTION_HOVER_TIMING);
+  }, [scale]);
+
+  const handleHoverOut = useCallback(() => {
+    hoveredRef.current = false;
+    scale.value = withTiming(1, MOTION_HOVER_TIMING);
+  }, [scale]);
+
+  const handlePressIn = useCallback(() => {
+    scale.value = withSpring(MOTION_PRESS_SCALE, MOTION_PRESS_SPRING);
+  }, [scale]);
+
   const pressableStyle = useMemo(
     () => [turnCopyButtonStylesheet.container, containerStyle],
     [containerStyle],
   );
+  const scaleStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+  const copyIconStyle = useAnimatedStyle(() => ({
+    opacity: copyOpacity.value,
+  }));
+  const checkIconStyle = useAnimatedStyle(() => ({
+    opacity: checkOpacity.value,
+    position: "absolute" as const,
+    top: 0,
+    left: 0,
+  }));
 
   return (
     <Pressable
       onPress={handleCopy}
+      onPressIn={handlePressIn}
+      onPressOut={restScale}
+      onHoverIn={handleHoverIn}
+      onHoverOut={handleHoverOut}
       style={pressableStyle}
       accessibilityRole="button"
       accessibilityLabel={
@@ -1090,10 +1272,17 @@ export const TurnCopyButton = memo(function TurnCopyButton({
         const iconColor = hovered
           ? turnCopyButtonStylesheet.iconHoveredColor.color
           : turnCopyButtonStylesheet.iconColor.color;
-        return copied ? (
-          <Check size={ICON_SIZE.sm} color={iconColor} />
-        ) : (
-          <Copy size={ICON_SIZE.sm} color={iconColor} />
+        return (
+          <Animated.View style={scaleStyle}>
+            <View>
+              <Animated.View style={copyIconStyle}>
+                <Copy size={ICON_SIZE.sm} color={iconColor} />
+              </Animated.View>
+              <Animated.View style={checkIconStyle}>
+                <Check size={ICON_SIZE.sm} color={iconColor} />
+              </Animated.View>
+            </View>
+          </Animated.View>
         );
       }}
     </Pressable>
@@ -1262,6 +1451,10 @@ const NativeExpandableBadgeShimmer = memo(function NativeExpandableBadgeShimmer(
 }: NativeExpandableBadgeShimmerProps) {
   const isPanelActive = useRetainedPanelActive();
   const shimmerTranslateX = useSharedValue(0);
+  const travelEndRef = useRef(rowWidth + peakWidth);
+  if (travelEndRef.current <= peakWidth && rowWidth > 0) {
+    travelEndRef.current = rowWidth + peakWidth;
+  }
 
   useEffect(() => {
     if (!isPanelActive) {
@@ -1269,7 +1462,7 @@ const NativeExpandableBadgeShimmer = memo(function NativeExpandableBadgeShimmer(
       return;
     }
     const startPosition = -peakWidth;
-    const endPosition = rowWidth + peakWidth;
+    const endPosition = travelEndRef.current;
     shimmerTranslateX.value = startPosition;
     shimmerTranslateX.value = withRepeat(
       withTiming(endPosition, {
@@ -1282,7 +1475,7 @@ const NativeExpandableBadgeShimmer = memo(function NativeExpandableBadgeShimmer(
     return () => {
       cancelAnimation(shimmerTranslateX);
     };
-  }, [durationSeconds, isPanelActive, peakWidth, rowWidth, shimmerTranslateX]);
+  }, [durationSeconds, isPanelActive, peakWidth, shimmerTranslateX]);
 
   const nativeShimmerPeakStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: shimmerTranslateX.value }],
@@ -1363,17 +1556,20 @@ function NativeShimmerPeakSvg({ gradientId }: { gradientId: string }) {
   );
 }
 
-interface AssistantMessageBlockContainerProps {
+interface AssistantMessageBlockProps {
   block: string;
   marginBottom: number;
+  clipGrowth: boolean;
   children: ReactNode;
 }
 
-function AssistantMessageBlockContainer({
+function AssistantMessageBlock({
   block,
   marginBottom,
+  clipGrowth,
   children,
-}: AssistantMessageBlockContainerProps) {
+}: AssistantMessageBlockProps) {
+  const animationsEnabled = useAnimationsEnabled();
   const style = useMemo(() => (marginBottom > 0 ? { marginBottom } : undefined), [marginBottom]);
   const handleLayout = useCallback(
     (event: LayoutChangeEvent) => {
@@ -1382,10 +1578,22 @@ function AssistantMessageBlockContainer({
     },
     [block],
   );
+  // While streaming, ChatGrowthClip owns this block's height; a layout
+  // transition would fight it. Once streamed, spacing shifts ease on the
+  // shared curve so a settling neighbor tracks the row above it.
   return (
-    <View style={style} onLayout={isWeb ? handleLayout : undefined}>
-      {children}
-    </View>
+    <Animated.View
+      style={style}
+      layout={clipGrowth || !animationsEnabled ? undefined : chatLayoutTransition()}
+    >
+      <ChatGrowthClip
+        enabled={clipGrowth}
+        onLayout={isWeb ? handleLayout : undefined}
+        testID={clipGrowth ? "assistant-block-growth-clip" : undefined}
+      >
+        {children}
+      </ChatGrowthClip>
+    </Animated.View>
   );
 }
 
@@ -1457,14 +1665,23 @@ function MarkdownInheritedText({
 
 interface MarkdownListItemContentProps {
   contentStyle: ViewStyle;
+  dataSet?: Record<string, string>;
   children: ReactNode;
 }
 
 const MARKDOWN_LIST_ITEM_CONTENT_FLEX: ViewStyle = { flex: 1, flexShrink: 1, minWidth: 0 };
 
-function MarkdownListItemContent({ contentStyle, children }: MarkdownListItemContentProps) {
+function MarkdownListItemContent({
+  contentStyle,
+  dataSet,
+  children,
+}: MarkdownListItemContentProps) {
   const style = useMemo(() => [contentStyle, MARKDOWN_LIST_ITEM_CONTENT_FLEX], [contentStyle]);
-  return <View style={style}>{children}</View>;
+  return (
+    <View style={style} dataSet={dataSet}>
+      {children}
+    </View>
+  );
 }
 
 interface MarkdownListViewProps {
@@ -1504,6 +1721,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   phase,
 }: AssistantMessageProps) {
   const { t } = useTranslation();
+  const animationsEnabled = useAnimationsEnabled();
   const markdownParser = useMemo(createAssistantMarkdownParser, []);
   const streamingMarkdownParser = useMemo(
     () => createAssistantMarkdownParser({ streaming: true }),
@@ -1640,7 +1858,7 @@ export const AssistantMessage = memo(function AssistantMessage({
           inheritedStyles={inheritedStyles}
           textStyle={styles.text}
         >
-          {node.content}
+          <StreamFadeMarkdownContent content={node.content} />
         </MarkdownInheritedText>
       ),
       textgroup: (
@@ -1748,13 +1966,14 @@ export const AssistantMessage = memo(function AssistantMessage({
         styles: MarkdownStyles,
         inheritedStyles: TextStyle = {},
       ) => (
-        <HighlightedCodeBlock
-          key={node.key}
-          code={node.content}
-          language={null}
-          inheritedStyles={inheritedStyles}
-          textStyle={styles.code_block}
-        />
+        <View key={node.key}>
+          <HighlightedCodeBlock
+            code={node.content}
+            language={null}
+            inheritedStyles={inheritedStyles}
+            textStyle={styles.code_block}
+          />
+        </View>
       ),
       fence: (
         node: ASTNode,
@@ -1763,14 +1982,15 @@ export const AssistantMessage = memo(function AssistantMessage({
         styles: MarkdownStyles,
         inheritedStyles: TextStyle = {},
       ) => (
-        <MarkdownFenceBlock
-          key={node.key}
-          code={node.content}
-          info={node.sourceInfo}
-          phase={phase}
-          inheritedStyles={inheritedStyles}
-          textStyle={styles.fence}
-        />
+        <View key={node.key}>
+          <MarkdownFenceBlock
+            code={node.content}
+            info={node.sourceInfo}
+            phase={phase}
+            inheritedStyles={inheritedStyles}
+            textStyle={styles.fence}
+          />
+        </View>
       ),
       code_inline: (
         node: ASTNode,
@@ -1797,7 +2017,9 @@ export const AssistantMessage = memo(function AssistantMessage({
               inheritedStyles={inheritedStyles}
               codeInlineStyle={styles.code_inline}
               linkStyle={styles.link}
-            />
+            >
+              <StreamFadeMarkdownContent content={content} />
+            </AssistantInlineCodePathLink>
           );
         }
 
@@ -1815,7 +2037,7 @@ export const AssistantMessage = memo(function AssistantMessage({
               codeInlineStyle={styles.code_inline}
               linkStyle={styles.link}
             >
-              {content}
+              <StreamFadeMarkdownContent content={content} />
             </AssistantMarkdownCodeLink>
           );
         }
@@ -1828,7 +2050,7 @@ export const AssistantMessage = memo(function AssistantMessage({
             textStyle={styles.code_inline}
             monoSurface
           >
-            {content}
+            <StreamFadeMarkdownContent content={content} />
           </MarkdownInheritedText>
         );
       },
@@ -1909,15 +2131,17 @@ export const AssistantMessage = memo(function AssistantMessage({
         children: ReactNode[],
         _parent: ASTNode[],
         styles: MarkdownStyles,
-      ) => (
-        <MarkdownParagraphView
-          key={node.key}
-          paragraphStyle={styles.paragraph}
-          containsImage={markdownNodeContainsType(node, "image")}
-        >
-          {children}
-        </MarkdownParagraphView>
-      ),
+      ) => {
+        return (
+          <MarkdownParagraphView
+            key={node.key}
+            paragraphStyle={styles.paragraph}
+            containsImage={markdownNodeContainsType(node, "image")}
+          >
+            {children}
+          </MarkdownParagraphView>
+        );
+      },
       link: (node: ASTNode, children: ReactNode[], _parent: ASTNode[], styles: MarkdownStyles) => (
         <AssistantMarkdownLink
           key={node.key}
@@ -1958,12 +2182,41 @@ export const AssistantMessage = memo(function AssistantMessage({
     };
   }, [client, fileLinkActions, markdownParser, occurrenceKey, phase, serverId, workspaceRoot]);
 
-  const blocks = useMemo(() => splitMarkdownBlocks(revealedMessage), [revealedMessage]);
-  const keyedBlocks = useMemo(
-    () => blocks.map((block, index) => ({ key: `block:${index}`, block })),
-    [blocks],
+  const renderCommittedBlocks = useCallback(
+    (committed: string) => {
+      const blocks = splitMarkdownBlocks(committed);
+      const parser = phase === "streaming" ? streamingMarkdownParser : markdownParser;
+      const clipNativeStreamGrowth = phase === "streaming" && !isWeb;
+      let cursor = 0;
+      return blocks.map((block, index) => {
+        const sourceOffset = committed.indexOf(block, cursor);
+        cursor = sourceOffset + block.length;
+        return (
+          <AssistantMessageBlock
+            key={`block:${sourceOffset}`}
+            block={block}
+            marginBottom={index < blocks.length - 1 ? 12 : 0}
+            clipGrowth={clipNativeStreamGrowth}
+          >
+            <MemoizedMarkdownBlock
+              text={block}
+              rules={markdownRules}
+              parser={parser}
+              onLinkPress={handleMarkdownLinkPress}
+            />
+          </AssistantMessageBlock>
+        );
+      });
+    },
+    [handleMarkdownLinkPress, markdownParser, markdownRules, phase, streamingMarkdownParser],
   );
-
+  const handleStreamLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      const { width, height } = event.nativeEvent.layout;
+      setAssistantMarkdownBlockHeight({ block: revealedMessage, width, height });
+    },
+    [revealedMessage],
+  );
   const assistantContainerStyle = useMemo(
     () => [
       assistantMessageStylesheet.container,
@@ -1986,26 +2239,23 @@ export const AssistantMessage = memo(function AssistantMessage({
     [occurrenceKey, revealedMessage.length],
   );
 
+  const webStreamClip = isWeb && phase === "streaming";
+  const fadeEnabled = phase === "streaming" && animationsEnabled;
+
   return (
     <View testID="assistant-message" dataSet={revealDataSet} style={assistantContainerStyle}>
-      {keyedBlocks.map(({ key, block }, index) => (
-        <AssistantMessageBlockContainer
-          key={key}
-          block={block}
-          marginBottom={index < keyedBlocks.length - 1 ? 12 : 0}
-        >
-          <MemoizedMarkdownBlock
-            text={block}
-            rules={markdownRules}
-            parser={
-              phase === "streaming" && index === keyedBlocks.length - 1
-                ? streamingMarkdownParser
-                : markdownParser
-            }
-            onLinkPress={handleMarkdownLinkPress}
-          />
-        </AssistantMessageBlockContainer>
-      ))}
+      <ChatGrowthClip
+        enabled={webStreamClip}
+        onLayout={isWeb ? handleStreamLayout : undefined}
+        testID={webStreamClip ? "assistant-block-growth-clip" : undefined}
+      >
+        <StreamWordFade
+          text={revealedMessage}
+          enabled={fadeEnabled}
+          renderCommitted={renderCommittedBlocks}
+          tokenStyle={assistantMessageStylesheet.streamToken}
+        />
+      </ChatGrowthClip>
       {fullMessageByteLength !== null ? (
         <Text
           testID="assistant-message-capped-notice"
@@ -2327,6 +2577,12 @@ interface ExpandableBadgeProps {
   renderDetails?: () => ReactNode;
   isLoading?: boolean;
   isError?: boolean;
+  /**
+   * While streaming details grow, ChatGrowthClip owns height. A layout
+   * transition on this badge would fight that ease the same way it does on
+   * assistant markdown blocks.
+   */
+  clipGrowth?: boolean;
   isLastInSequence?: boolean;
   disableOuterSpacing?: boolean;
   borderlessWhenExpanded?: boolean;
@@ -2406,6 +2662,7 @@ interface ExpandableBadgeLabelRowProps {
   shouldMeasureNativeShimmer: boolean;
   isWebShimmer: boolean;
   isNativeShimmer: boolean;
+  isLoading: boolean;
   shimmerLabelTextStyle: StyleProp<TextStyle>;
   shimmerSecondaryTextStyle: StyleProp<TextStyle>;
   labelRowWidth: number;
@@ -2432,6 +2689,7 @@ function ExpandableBadgeLabelRow({
   shouldMeasureNativeShimmer,
   isWebShimmer,
   isNativeShimmer,
+  isLoading,
   shimmerLabelTextStyle,
   shimmerSecondaryTextStyle,
   labelRowWidth,
@@ -2454,13 +2712,13 @@ function ExpandableBadgeLabelRow({
       style={expandableBadgeStylesheet.labelRow}
       onLayout={shouldMeasureNativeShimmer ? onLabelRowLayout : undefined}
     >
-      <Text
+      <GrowingLabel
+        text={label}
         style={labelStyle}
         numberOfLines={1}
         onLayout={shouldMeasureWebShimmer ? onLabelLayout : undefined}
-      >
-        {label}
-      </Text>
+        fadeIncoming={isLoading}
+      />
       <ExpandableBadgeSecondaryLabel
         secondaryLabel={secondaryLabel}
         secondaryLabelStyle={secondaryLabelStyle}
@@ -2576,55 +2834,6 @@ function renderExpandableBadgeIconSlot({
   return iconNode;
 }
 
-function computeShimmerMetrics(input: {
-  label: string;
-  secondaryLabel: string | undefined;
-  isLoading: boolean;
-  labelRowWidth: number;
-  labelRowHeight: number;
-  labelOffsetX: number;
-  labelWidth: number;
-  secondaryOffsetX: number;
-  secondaryWidth: number;
-}) {
-  const totalShimmerChars = input.label.trim().length + (input.secondaryLabel?.trim().length ?? 0);
-  const shortTextDurationAdjustment = totalShimmerChars <= 12 ? 0.25 : 0;
-  const shimmerDuration = Math.max(
-    1,
-    Math.min(2.3, 1.25 + totalShimmerChars * 0.008 - shortTextDurationAdjustment),
-  );
-  const nativeShimmerPeakWidth = Math.max(
-    32,
-    Math.min(120, input.labelRowWidth > 0 ? input.labelRowWidth * 0.28 : 0),
-  );
-  const isWebShimmer = input.isLoading && isWeb;
-  // React Native Web only observes a node when onLayout exists at mount. Keep
-  // measuring while idle so a retained badge has dimensions when it starts loading.
-  const shouldMeasureWebShimmer = isWeb;
-  const shouldMeasureNativeShimmer = input.isLoading && isNative;
-  const isNativeShimmer =
-    shouldMeasureNativeShimmer && input.labelRowWidth > 0 && input.labelRowHeight > 0;
-  const webShimmerSpanStartX = input.labelOffsetX;
-  const webShimmerSpanEndX = input.secondaryLabel
-    ? input.secondaryOffsetX + input.secondaryWidth
-    : input.labelOffsetX + input.labelWidth;
-  const webShimmerSpanWidth = Math.max(1, webShimmerSpanEndX - webShimmerSpanStartX);
-  const webShimmerPeakWidth = Math.max(42, Math.min(120, webShimmerSpanWidth * 0.22));
-  const webShimmerTrackStart = webShimmerSpanStartX - webShimmerPeakWidth;
-  const webShimmerTrackEnd = webShimmerSpanEndX;
-  return {
-    shimmerDuration,
-    nativeShimmerPeakWidth,
-    isWebShimmer,
-    shouldMeasureWebShimmer,
-    shouldMeasureNativeShimmer,
-    isNativeShimmer,
-    webShimmerPeakWidth,
-    webShimmerTrackStart,
-    webShimmerTrackEnd,
-  };
-}
-
 function useDetailWheelPropagationBlocker(input: {
   detailWrapperRef: React.RefObject<View | null>;
   enabled: boolean;
@@ -2678,6 +2887,13 @@ function buildShimmerTextStyle(input: {
   });
 }
 
+function expandableBadgeLayoutTransition(hasDetails: boolean) {
+  if (hasDetails) {
+    return undefined;
+  }
+  return chatLayoutTransition();
+}
+
 export const ExpandableBadge = memo(function ExpandableBadge({
   label,
   style,
@@ -2693,6 +2909,7 @@ export const ExpandableBadge = memo(function ExpandableBadge({
   isLastInSequence = false,
   disableOuterSpacing,
   borderlessWhenExpanded = false,
+  clipGrowth: _clipGrowth = false,
   testID,
 }: ExpandableBadgeProps) {
   const resolvedDisableOuterSpacing = useDisableOuterSpacing(disableOuterSpacing);
@@ -2701,8 +2918,8 @@ export const ExpandableBadge = memo(function ExpandableBadge({
   const [isPressed, setIsPressed] = useState(false);
   const isInteractive = Boolean(onToggle);
   const hasDetailContent = Boolean(renderDetails);
-  const detailContent = hasDetailContent && isExpanded ? renderDetails?.() : null;
   const detailWrapperRef = useRef<View | null>(null);
+  const [isClosing, setIsClosing] = useState(false);
 
   const handleHoverIn = useCallback(() => setIsHovered(true), []);
   const handleHoverOut = useCallback(() => {
@@ -2735,21 +2952,21 @@ export const ExpandableBadge = memo(function ExpandableBadge({
   const [labelWidth, setLabelWidth] = useState(0);
   const [secondaryOffsetX, setSecondaryOffsetX] = useState(0);
   const [secondaryWidth, setSecondaryWidth] = useState(0);
-
   const {
-    shimmerDuration,
-    nativeShimmerPeakWidth,
     isWebShimmer,
     shouldMeasureWebShimmer,
     shouldMeasureNativeShimmer,
     isNativeShimmer,
-    webShimmerPeakWidth,
-    webShimmerTrackStart,
-    webShimmerTrackEnd,
-  } = computeShimmerMetrics({
+    shimmerDuration,
+    peakWidth,
+    trackStart,
+    trackEnd,
+  } = useRetainedShimmerMetrics({
     label,
     secondaryLabel,
     isLoading,
+    isWeb,
+    isNative,
     labelRowWidth,
     labelRowHeight,
     labelOffsetX,
@@ -2794,56 +3011,35 @@ export const ExpandableBadge = memo(function ExpandableBadge({
     [shouldMeasureWebShimmer, secondaryLabel],
   );
 
-  useEffect(() => {
-    if (!isWebShimmer) {
-      return;
-    }
-    ensureWebToolCallShimmerKeyframes();
-  }, [isWebShimmer]);
-
   useDetailWheelPropagationBlocker({
     detailWrapperRef,
-    enabled: !isNative && isExpanded && hasDetailContent,
+    enabled: !isNative && (isExpanded || isClosing) && hasDetailContent,
   });
 
   const shimmerLabelStyle = useMemo<StyleProp<TextStyle>>(
     () =>
       buildShimmerTextStyle({
         isWebShimmer,
-        webShimmerPeakWidth,
+        webShimmerPeakWidth: peakWidth,
         shimmerDuration,
-        webShimmerTrackStart,
-        webShimmerTrackEnd,
+        webShimmerTrackStart: trackStart,
+        webShimmerTrackEnd: trackEnd,
         offsetX: labelOffsetX,
       }),
-    [
-      isWebShimmer,
-      webShimmerPeakWidth,
-      shimmerDuration,
-      webShimmerTrackStart,
-      webShimmerTrackEnd,
-      labelOffsetX,
-    ],
+    [isWebShimmer, peakWidth, shimmerDuration, trackStart, trackEnd, labelOffsetX],
   );
 
   const shimmerSecondaryStyle = useMemo<StyleProp<TextStyle>>(
     () =>
       buildShimmerTextStyle({
         isWebShimmer,
-        webShimmerPeakWidth,
+        webShimmerPeakWidth: peakWidth,
         shimmerDuration,
-        webShimmerTrackStart,
-        webShimmerTrackEnd,
+        webShimmerTrackStart: trackStart,
+        webShimmerTrackEnd: trackEnd,
         offsetX: secondaryOffsetX,
       }),
-    [
-      isWebShimmer,
-      webShimmerPeakWidth,
-      shimmerDuration,
-      webShimmerTrackStart,
-      webShimmerTrackEnd,
-      secondaryOffsetX,
-    ],
+    [isWebShimmer, peakWidth, shimmerDuration, trackStart, trackEnd, secondaryOffsetX],
   );
 
   const containerStyle = useMemo(
@@ -2858,14 +3054,16 @@ export const ExpandableBadge = memo(function ExpandableBadge({
     [isLastInSequence, resolvedDisableOuterSpacing, style],
   );
 
+  const isAttached = (isExpanded || isClosing) && !borderlessWhenExpanded;
+
   const pressableStyle = useMemo(
     () => [
       expandableBadgeStylesheet.pressable,
       isPressed && isInteractive ? expandableBadgeStylesheet.pressablePressed : null,
-      isExpanded && expandableBadgeStylesheet.pressableExpanded,
-      isExpanded && !borderlessWhenExpanded && expandableBadgeStylesheet.pressableExpandedAttached,
+      (isExpanded || isClosing) && expandableBadgeStylesheet.pressableExpanded,
+      isAttached && expandableBadgeStylesheet.pressableExpandedAttached,
     ],
-    [borderlessWhenExpanded, isExpanded, isInteractive, isPressed],
+    [isAttached, isClosing, isExpanded, isInteractive, isPressed],
   );
 
   const detailWrapperStyle = useMemo(
@@ -2943,13 +3141,16 @@ export const ExpandableBadge = memo(function ExpandableBadge({
         onPress: onToggle,
         onPressIn: handlePressIn,
         onPressOut: handlePressOut,
-        accessibilityRole: "button" as const,
+        // Web maps role=button to <button>. Open file is a nested Pressable;
+        // a nested <button> is invalid HTML.
+        accessibilityRole: isWeb ? undefined : ("button" as const),
       }
     : {};
 
   return (
-    <View
+    <Animated.View
       style={containerStyle}
+      layout={expandableBadgeLayoutTransition(hasDetailContent)}
       testID={testID}
       onPointerEnter={isWeb ? handleHoverIn : undefined}
       onPointerLeave={isWeb ? handleHoverOut : undefined}
@@ -2971,11 +3172,12 @@ export const ExpandableBadge = memo(function ExpandableBadge({
             shouldMeasureNativeShimmer={shouldMeasureNativeShimmer}
             isWebShimmer={isWebShimmer}
             isNativeShimmer={isNativeShimmer}
+            isLoading={isLoading}
             shimmerLabelTextStyle={shimmerLabelTextStyle}
             shimmerSecondaryTextStyle={shimmerSecondaryTextStyle}
             labelRowWidth={labelRowWidth}
             labelRowHeight={labelRowHeight}
-            nativeShimmerPeakWidth={nativeShimmerPeakWidth}
+            nativeShimmerPeakWidth={peakWidth}
             shimmerDuration={shimmerDuration}
             nativeGradientId={nativeGradientIdRef.current}
             onLabelRowLayout={handleLabelRowLayout}
@@ -2989,17 +3191,19 @@ export const ExpandableBadge = memo(function ExpandableBadge({
           />
         </View>
       </Pressable>
-      {detailContent ? (
-        <Pressable
-          ref={detailWrapperRef}
-          style={detailWrapperStyle}
+      {hasDetailContent ? (
+        <ExpandableBadgeCollapseClip
+          expanded={isExpanded}
+          renderDetails={renderDetails}
+          detailWrapperRef={detailWrapperRef}
+          detailWrapperStyle={detailWrapperStyle}
           onHoverIn={handleDetailHoverIn}
           onHoverOut={handleDetailHoverOut}
-        >
-          {detailContent}
-        </Pressable>
+          onClosingChange={setIsClosing}
+          testID="tool-call-detail-entry-clip"
+        />
       ) : null}
-    </View>
+    </Animated.View>
   );
 }, areExpandableBadgePropsEqual);
 
@@ -3014,6 +3218,7 @@ function areExpandableBadgePropsEqual(previous: ExpandableBadgeProps, next: Expa
   if (previous.isLastInSequence !== next.isLastInSequence) return false;
   if (previous.disableOuterSpacing !== next.disableOuterSpacing) return false;
   if (previous.borderlessWhenExpanded !== next.borderlessWhenExpanded) return false;
+  if (previous.clipGrowth !== next.clipGrowth) return false;
   if (previous.testID !== next.testID) return false;
   if (previous.onToggle !== next.onToggle) return false;
   if (previous.onOpenFile !== next.onOpenFile) return false;
@@ -3040,6 +3245,7 @@ interface ToolCallProps {
   defaultExpanded?: boolean;
   forceInline?: boolean;
   maxDetailHeight?: number;
+  followOutputPersistKey?: string;
 }
 
 export const ToolCall = memo(function ToolCall({
@@ -3060,12 +3266,14 @@ export const ToolCall = memo(function ToolCall({
   defaultExpanded,
   forceInline = false,
   maxDetailHeight = 400,
+  followOutputPersistKey,
 }: ToolCallProps) {
   const { openToolCall } = useToolCallSheet();
   const [isExpanded, setIsExpanded] = useState(defaultExpanded ?? false);
 
   const isMobile = useIsCompactFormFactor();
   const shouldRenderInline = !isMobile || forceInline;
+  const clipGrowth = status === "executing" || status === "running";
 
   const effectiveDetail = useMemo<ToolCallDetail | undefined>(() => {
     if (detail) {
@@ -3166,6 +3374,8 @@ export const ToolCall = memo(function ToolCall({
         errorText={presentation.errorText}
         maxHeight={maxDetailHeight}
         showLoadingSkeleton={presentation.isLoadingDetails}
+        followOutput={clipGrowth}
+        followOutputPersistKey={followOutputPersistKey}
       />
     );
   }, [
@@ -3175,6 +3385,8 @@ export const ToolCall = memo(function ToolCall({
     presentation.errorText,
     presentation.isLoadingDetails,
     maxDetailHeight,
+    clipGrowth,
+    followOutputPersistKey,
   ]);
 
   if (presentation.isPlan && effectiveDetail?.type === "plan") {
@@ -3199,6 +3411,7 @@ export const ToolCall = memo(function ToolCall({
       onOpenFile={handleOpenFile}
       renderDetails={presentation.canOpenDetails && shouldRenderInline ? renderDetails : undefined}
       isLoading={status === "running" || status === "executing"}
+      clipGrowth={clipGrowth}
       isError={status === "failed"}
       isLastInSequence={isLastInSequence}
       disableOuterSpacing={disableOuterSpacing}
@@ -3222,5 +3435,6 @@ function areToolCallPropsEqual(previous: ToolCallProps, next: ToolCallProps) {
   if (previous.defaultExpanded !== next.defaultExpanded) return false;
   if (previous.forceInline !== next.forceInline) return false;
   if (previous.maxDetailHeight !== next.maxDetailHeight) return false;
+  if (previous.followOutputPersistKey !== next.followOutputPersistKey) return false;
   return true;
 }

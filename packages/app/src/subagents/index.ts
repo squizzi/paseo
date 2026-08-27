@@ -9,3 +9,4 @@ export {
   type ArchiveFinishedStatus,
   type UseArchiveFinishedSubagentsInput,
 } from "./use-archive-finished";
+export { useSubagentRowExitTracking } from "./track-exit-motion";

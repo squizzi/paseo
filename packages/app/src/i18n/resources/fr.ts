@@ -2293,6 +2293,11 @@ export const fr: TranslationResources = {
       detailLevel: {
         title: "Niveau de détail",
       },
+      animations: {
+        title: "Animations",
+        description:
+          "Faire apparaître, glisser et assouplir les éléments à l’arrivée, au flux et au réordonnancement",
+      },
       chatOutline: {
         title: "Plan de la discussion",
         description: "Afficher un plan pour naviguer entre les prompts",

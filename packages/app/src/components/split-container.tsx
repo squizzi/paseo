@@ -26,7 +26,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { arrayMove, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
-import { View, Text, type LayoutChangeEvent } from "react-native";
+import { StyleSheet as RNStyleSheet, View, Text, type LayoutChangeEvent } from "react-native";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -39,6 +39,7 @@ import {
   resolveExplorerSidebarDockSizes,
   resolveExplorerSidebarWidth,
 } from "@/components/explorer-sidebar-layout";
+import { useSidebarPanelWidth } from "@/components/sidebar/use-sidebar-panel-width";
 import { RetainedPanel } from "@/components/retained-panel";
 import {
   hasMultipleVisiblePanes,
@@ -59,6 +60,10 @@ import {
   type TabDropPreview,
 } from "@/components/split-container-tab-drop-preview";
 import {
+  applyPendingPaneTabOrder,
+  type PendingPaneTabOrder,
+} from "@/components/split-container-pending-pane-tabs";
+import {
   SplitDropZone,
   resolveSplitDropPosition,
   type SplitDropZoneHover,
@@ -73,6 +78,7 @@ import {
   WorkspaceDesktopTabsRow,
   type WorkspaceDesktopTabRowItem,
 } from "@/screens/workspace/workspace-desktop-tabs-row";
+import { forgetTabMotionId } from "@/screens/workspace/workspace-tab-motion-helpers";
 import { ExplorerSidebarDock } from "@/screens/workspace/explorer-sidebar";
 import {
   WorkspaceTabPresentationResolver,
@@ -184,6 +190,7 @@ interface SplitNodeViewProps extends Omit<
   showDropZones: boolean;
   dropPreview: SplitDropZoneHover | null;
   tabDropPreview: TabDropPreview | null;
+  pendingPaneTabOrder: PendingPaneTabOrder | null;
   windowChromeCorners: WindowChromeCorners;
   maximizedPaneId: string | null;
   workspaceHasMultiplePanes: boolean;
@@ -200,6 +207,7 @@ interface SplitPaneViewProps extends Omit<
   | "dropPreview"
   | "onResizeSplit"
   | "windowChromeCorners"
+  | "pendingPaneTabOrder"
 > {
   pane: SplitPane;
   uiTabs: WorkspaceTab[];
@@ -333,7 +341,7 @@ export function SplitContainer({
   onFocusPane,
   onSplitPane,
   onSplitPaneEmpty,
-  onMoveTabToPane,
+  onMoveTabToPane: onMoveTabToPaneProp,
   onSelectTabInPane,
   onResizeSplit,
   onReorderTabsInPane,
@@ -345,6 +353,7 @@ export function SplitContainer({
   const [activeDragTabId, setActiveDragTabId] = useState<string | null>(null);
   const [dropPreview, setDropPreview] = useState<SplitDropZoneHover | null>(null);
   const [tabDropPreview, setTabDropPreview] = useState<TabDropPreview | null>(null);
+  const [pendingPaneTabOrder, setPendingPaneTabOrder] = useState<PendingPaneTabOrder | null>(null);
   const [maximizedPane, setMaximizedPane] = useState<{
     workspaceKey: string;
     paneId: string;
@@ -397,6 +406,15 @@ export function SplitContainer({
     },
     [workspaceKey],
   );
+  // A tab moving to another pane is new to that pane's motion registry, so it should
+  // play its entrance animation there instead of snapping in as already-seen.
+  const onMoveTabToPane = useCallback(
+    (tabId: string, toPaneId: string) => {
+      forgetTabMotionId(tabId);
+      onMoveTabToPaneProp(tabId, toPaneId);
+    },
+    [onMoveTabToPaneProp],
+  );
   const splitRoot = useMemo(
     () =>
       resolveSplitContainerRoot({
@@ -427,16 +445,25 @@ export function SplitContainer({
       }),
     [requestedExplorerSidebarWidth, workspaceShellWidth],
   );
-  const renderExplorerSidebarDock = Boolean(
+  const explorerOpen = Boolean(
     !focusModeEnabled && explorerSidebarPane && explorerSidebarPane.hidden !== true,
   );
-  const mainColumnWindowChromeCorners = renderExplorerSidebarDock
+  const explorerPanel = useSidebarPanelWidth({
+    open: explorerOpen,
+    openWidth: explorerSidebarWidth,
+  });
+  const showExplorerDock = Boolean(explorerSidebarPane) && explorerPanel.occupiesLayout;
+  const mainColumnWindowChromeCorners = explorerOpen
     ? removeWindowChromeCorner(inheritedWindowChromeCorners, "top-right")
     : inheritedWindowChromeCorners;
   const mainColumnStyle = styles.mainColumn;
   const explorerSidebarDockStyle = useMemo(
-    () => [styles.explorerSidebarDock, { width: explorerSidebarWidth }],
-    [explorerSidebarWidth],
+    () => [explorerDockStaticStyles.clip, explorerPanel.frameStyle],
+    [explorerPanel.frameStyle],
+  );
+  const explorerSidebarDockInnerStyle = useMemo(
+    () => [explorerDockStaticStyles.inner, explorerPanel.innerStyle],
+    [explorerPanel.innerStyle],
   );
   const handleWorkspaceShellLayout = useCallback((event: LayoutChangeEvent) => {
     const nextWidth = event.nativeEvent.layout.width;
@@ -477,15 +504,18 @@ export function SplitContainer({
     const data = asWorkspaceTabDragData(event.active.data.current);
     if (!data) {
       setActiveDragTabId(null);
+      setPendingPaneTabOrder(null);
       setDropPreview(null);
       setTabDropPreview(null);
       return;
     }
+    setPendingPaneTabOrder(null);
     setActiveDragTabId(data.tabId);
   }, []);
 
   const handleDragCancel = useCallback(() => {
     setActiveDragTabId(null);
+    setPendingPaneTabOrder(null);
     setDropPreview(null);
     setTabDropPreview(null);
   }, []);
@@ -567,15 +597,13 @@ export function SplitContainer({
 
       if (activeData.paneId === overData.paneId) {
         if (sourceIndex !== resolvedTabDropPreview.insertionIndex) {
-          const nextTabs = arrayMove(
+          const nextTabIds = arrayMove(
             sourceTabs,
             sourceIndex,
             resolvedTabDropPreview.insertionIndex,
-          );
-          onReorderTabsInPane(
-            activeData.paneId,
-            nextTabs.map((tab) => tab.tabId),
-          );
+          ).map((tab) => tab.tabId);
+          setPendingPaneTabOrder({ paneId: activeData.paneId, tabIds: nextTabIds });
+          onReorderTabsInPane(activeData.paneId, nextTabIds);
         }
         return;
       }
@@ -614,8 +642,6 @@ export function SplitContainer({
       const activeData = asWorkspaceTabDragData(event.active.data.current);
       const overData = asDragOverData(event.over?.data.current);
 
-      setActiveDragTabId(null);
-
       if (activeData?.kind === "workspace-tab" && event.over) {
         if (overData?.kind === "workspace-tab") {
           applyTabDropEnd({ activeData, overData });
@@ -624,8 +650,10 @@ export function SplitContainer({
         }
       }
 
+      setActiveDragTabId(null);
       setDropPreview(null);
       setTabDropPreview(null);
+      setPendingPaneTabOrder(null);
     },
     [applyTabDropEnd, applyPaneDropEnd],
   );
@@ -680,6 +708,7 @@ export function SplitContainer({
                   showDropZones={activeDragTabId !== null}
                   dropPreview={dropPreview}
                   tabDropPreview={tabDropPreview}
+                  pendingPaneTabOrder={pendingPaneTabOrder}
                   windowChromeCorners={splitRoot.usesFallbackStrip ? "none" : windowChromeCorners}
                   maximizedPaneId={maximizedPaneId}
                   workspaceHasMultiplePanes={workspaceHasMultiplePanes}
@@ -690,49 +719,59 @@ export function SplitContainer({
               ) : null}
             </View>
           </WindowChromeRegion>
-          {renderExplorerSidebarDock && explorerSidebarPane ? (
+          {showExplorerDock && explorerSidebarPane ? (
             <>
-              <ResizeHandle
-                testID="workspace-explorer-sidebar-resize-handle"
-                direction="horizontal"
-                hitAreaAlignment="end"
-                groupId={EXPLORER_SIDEBAR_RESIZE_GROUP_ID}
-                index={0}
-                sizes={explorerSidebarDockSizes}
-                containerSize={workspaceShellWidth}
-                onPreviewResizeSplit={previewExplorerSidebarResize}
-                onResizeSplit={commitExplorerSidebarResize}
-              />
-              <View style={explorerSidebarDockStyle}>
-                <ExplorerSidebarDock
-                  pane={explorerSidebarPane}
-                  uiTabs={uiTabs}
-                  normalizedServerId={normalizedServerId}
-                  normalizedWorkspaceId={normalizedWorkspaceId}
-                  isWorkspaceFocused={isWorkspaceFocused}
-                  closingTabIds={closingTabIds}
-                  onSelectTab={onSelectTabInPane}
-                  onCloseTab={onCloseTab}
-                  onCreateNewTab={onCreateNewTab}
-                  hoveredCloseTabKey={hoveredCloseTabKey}
-                  setHoveredCloseTabKey={setHoveredCloseTabKey}
-                  onCopyResumeCommand={onCopyResumeCommand}
-                  onCopyAgentId={onCopyAgentId}
-                  onCopyTerminalId={onCopyTerminalId}
-                  onCopyFilePath={onCopyFilePath}
-                  onReloadAgent={onReloadAgent}
-                  onRenameTab={onRenameTab}
-                  onCloseTabsToLeft={onCloseTabsToLeft}
-                  onCloseTabsToRight={onCloseTabsToRight}
-                  onCloseOtherTabs={onCloseOtherTabs}
-                  onExitFocusMode={onExitFocusMode}
-                  buildPaneContentModel={buildPaneContentModel}
-                  onReorderTabsInPane={onReorderTabsInPane}
-                  activeDragTabId={activeDragTabId}
-                  tabDropPreview={tabDropPreview}
-                  headerAction={renderExplorerSidebarHeaderAction?.()}
+              {explorerOpen ? (
+                <ResizeHandle
+                  testID="workspace-explorer-sidebar-resize-handle"
+                  direction="horizontal"
+                  hitAreaAlignment="end"
+                  groupId={EXPLORER_SIDEBAR_RESIZE_GROUP_ID}
+                  index={0}
+                  sizes={explorerSidebarDockSizes}
+                  containerSize={workspaceShellWidth}
+                  onPreviewResizeSplit={previewExplorerSidebarResize}
+                  onResizeSplit={commitExplorerSidebarResize}
                 />
-              </View>
+              ) : null}
+              <Animated.View
+                pointerEvents={explorerOpen ? "auto" : "none"}
+                style={explorerSidebarDockStyle}
+              >
+                <Animated.View style={explorerSidebarDockInnerStyle}>
+                  <ExplorerSidebarDock
+                    pane={applyPendingPaneTabOrder({
+                      pane: explorerSidebarPane,
+                      pending: pendingPaneTabOrder,
+                    })}
+                    uiTabs={uiTabs}
+                    normalizedServerId={normalizedServerId}
+                    normalizedWorkspaceId={normalizedWorkspaceId}
+                    isWorkspaceFocused={isWorkspaceFocused}
+                    closingTabIds={closingTabIds}
+                    onSelectTab={onSelectTabInPane}
+                    onCloseTab={onCloseTab}
+                    onCreateNewTab={onCreateNewTab}
+                    hoveredCloseTabKey={hoveredCloseTabKey}
+                    setHoveredCloseTabKey={setHoveredCloseTabKey}
+                    onCopyResumeCommand={onCopyResumeCommand}
+                    onCopyAgentId={onCopyAgentId}
+                    onCopyTerminalId={onCopyTerminalId}
+                    onCopyFilePath={onCopyFilePath}
+                    onReloadAgent={onReloadAgent}
+                    onRenameTab={onRenameTab}
+                    onCloseTabsToLeft={onCloseTabsToLeft}
+                    onCloseTabsToRight={onCloseTabsToRight}
+                    onCloseOtherTabs={onCloseOtherTabs}
+                    onExitFocusMode={onExitFocusMode}
+                    buildPaneContentModel={buildPaneContentModel}
+                    onReorderTabsInPane={onReorderTabsInPane}
+                    activeDragTabId={activeDragTabId}
+                    tabDropPreview={tabDropPreview}
+                    headerAction={renderExplorerSidebarHeaderAction?.()}
+                  />
+                </Animated.View>
+              </Animated.View>
             </>
           ) : null}
         </View>
@@ -953,6 +992,7 @@ function SplitNodeView({
   showDropZones,
   dropPreview,
   tabDropPreview,
+  pendingPaneTabOrder,
   windowChromeCorners,
   maximizedPaneId,
   workspaceHasMultiplePanes,
@@ -1010,7 +1050,7 @@ function SplitNodeView({
       >
         <WindowChromeRegion corners={windowChromeCorners}>
           <SplitPaneView
-            pane={node.pane}
+            pane={applyPendingPaneTabOrder({ pane: node.pane, pending: pendingPaneTabOrder })}
             uiTabs={uiTabs}
             isFocused={node.pane.id === focusedPaneId}
             normalizedServerId={normalizedServerId}
@@ -1093,6 +1133,7 @@ function SplitNodeView({
               showDropZones={showDropZones}
               dropPreview={dropPreview}
               tabDropPreview={tabDropPreview}
+              pendingPaneTabOrder={pendingPaneTabOrder}
               windowChromeCorners={windowChromeCorners}
               maximizedPaneId={maximizedPaneId}
               workspaceHasMultiplePanes={workspaceHasMultiplePanes}
@@ -1393,12 +1434,6 @@ const styles = StyleSheet.create((theme) => ({
     minWidth: 0,
     minHeight: 0,
   },
-  explorerSidebarDock: {
-    flexShrink: 0,
-    minWidth: 240,
-    minHeight: 0,
-    backgroundColor: theme.colors.surfaceSidebar,
-  },
   group: {
     flex: 1,
     minWidth: 0,
@@ -1448,3 +1483,14 @@ const styles = StyleSheet.create((theme) => ({
     flexShrink: 1,
   },
 }));
+
+const explorerDockStaticStyles = RNStyleSheet.create({
+  clip: {
+    flexShrink: 0,
+    minHeight: 0,
+  },
+  inner: {
+    minWidth: 240,
+    minHeight: 0,
+  },
+});

@@ -1,4 +1,13 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { View, type ViewProps } from "react-native";
 import {
   DESKTOP_TRAFFIC_LIGHT_HEIGHT,
@@ -11,7 +20,15 @@ import {
   getDesktopWindowControlsPresentation,
   getDesktopWindowControlsWidth,
 } from "@/desktop/window-chrome-presentation";
-import { isNative } from "@/constants/platform";
+import { isNative, isWeb } from "@/constants/platform";
+import {
+  MOTION_ARRIVE_CSS,
+  MOTION_ARRIVE_DURATION_MS,
+  MOTION_EXIT_CSS,
+  MOTION_EXIT_DURATION_MS,
+} from "@/styles/motion-tokens";
+import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
+import { useAnimationsEnabled } from "@/hooks/use-settings";
 
 export type WindowChromeCorners = "none" | "top-left" | "top-right" | "both";
 type WindowChromeSafeAreaPlacement = "inline" | "below";
@@ -306,16 +323,59 @@ export function WindowChromeSafeArea({
 }: WindowChromeSafeAreaProps) {
   const obstruction = useContext(WindowChromeContext);
   const corners = useContext(WindowChromeCornersContext);
+  const animationsEnabled = useAnimationsEnabled();
+  const previousResolvedRef = useRef<{ paddingLeft: number; paddingRight: number } | null>(null);
+
   const safeAreaStyle = useMemo(() => {
     const resolved = resolveWindowChromeSafeArea({ obstruction, corners, placement });
     if (placement === "below") return resolved;
     const paddingLeft = "paddingLeft" in resolved ? resolved.paddingLeft : 0;
     const paddingRight = "paddingRight" in resolved ? resolved.paddingRight : 0;
+    const prev = previousResolvedRef.current;
+
+    let durationLeft = MOTION_ARRIVE_DURATION_MS;
+    let timingLeft = MOTION_ARRIVE_CSS;
+    if (prev && paddingLeft > prev.paddingLeft) {
+      durationLeft = MOTION_EXIT_DURATION_MS;
+      timingLeft = MOTION_EXIT_CSS;
+    } else if (prev && paddingLeft < prev.paddingLeft) {
+      durationLeft = MOTION_ARRIVE_DURATION_MS;
+      timingLeft = MOTION_ARRIVE_CSS;
+    }
+
+    let durationRight = MOTION_ARRIVE_DURATION_MS;
+    let timingRight = MOTION_ARRIVE_CSS;
+    if (prev && paddingRight > prev.paddingRight) {
+      durationRight = MOTION_EXIT_DURATION_MS;
+      timingRight = MOTION_EXIT_CSS;
+    } else if (prev && paddingRight < prev.paddingRight) {
+      durationRight = MOTION_ARRIVE_DURATION_MS;
+      timingRight = MOTION_ARRIVE_CSS;
+    }
+
+    const hasTransition = isWeb && prev !== null && animationsEnabled;
+
     return {
       paddingLeft: paddingLeft + horizontalPadding,
       paddingRight: paddingRight + horizontalPadding,
+      ...(hasTransition
+        ? inlineUnistylesStyle({
+            transition: `padding-left ${durationLeft}ms ${timingLeft}, padding-right ${durationRight}ms ${timingRight}`,
+          })
+        : null),
     };
-  }, [corners, horizontalPadding, obstruction, placement]);
+  }, [animationsEnabled, corners, horizontalPadding, obstruction, placement]);
+
+  useLayoutEffect(() => {
+    const resolved = resolveWindowChromeSafeArea({ obstruction, corners, placement });
+    if (placement !== "below") {
+      previousResolvedRef.current = {
+        paddingLeft: "paddingLeft" in resolved ? resolved.paddingLeft : 0,
+        paddingRight: "paddingRight" in resolved ? resolved.paddingRight : 0,
+      };
+    }
+  }, [corners, obstruction, placement]);
+
   const combinedStyle = useMemo(() => [style, safeAreaStyle], [safeAreaStyle, style]);
   return <View {...props} style={combinedStyle} />;
 }

@@ -248,6 +248,10 @@ export function useSettings<TSelected>(
   };
 }
 
+export function useAnimationsEnabled(): boolean {
+  return useSettings((settings) => settings.animationsEnabled);
+}
+
 export async function persistAppSettings(updates: Partial<AppSettings>): Promise<void> {
   await saveAppSettings({ queryClient: appQueryClient, updates });
 }

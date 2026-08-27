@@ -16,6 +16,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { DropdownTrigger } from "@/components/ui/dropdown-trigger";
+import { SettingsCard, SettingsSwitch } from "@/components/settings";
 import { SettingsSection } from "@/components/settings/headings/settings-section";
 import { useContributedThemes } from "@/appearance/provider";
 import { Button } from "@/components/ui/button";
@@ -225,6 +226,23 @@ function ThemeRow({
         </DropdownMenuContent>
       </DropdownMenu>
     </View>
+  );
+}
+
+interface AnimationsRowProps {
+  value: boolean;
+  onChange: (value: boolean) => void;
+}
+
+function AnimationsRow({ value, onChange }: AnimationsRowProps) {
+  const { t } = useTranslation();
+  return (
+    <SettingsSwitch
+      label={t("settings.appearance.animations.title")}
+      hint={t("settings.appearance.animations.description")}
+      value={value}
+      onValueChange={onChange}
+    />
   );
 }
 
@@ -528,6 +546,13 @@ export function AppearanceSection() {
     [updateSettings],
   );
 
+  const handleAnimationsChange = useCallback(
+    (animationsEnabled: boolean) => {
+      void updateSettings({ animationsEnabled });
+    },
+    [updateSettings],
+  );
+
   const commitUiFontFamily = useCallback(
     (value: string) => {
       const sanitized = sanitizeFontFamily(value);
@@ -631,6 +656,12 @@ export function AppearanceSection() {
           />
         </View>
       </SettingsSection>
+      <SettingsSection title={t("settings.appearance.animations.title")}>
+        <SettingsCard>
+          <AnimationsRow value={settings.animationsEnabled} onChange={handleAnimationsChange} />
+        </SettingsCard>
+      </SettingsSection>
+
       <SettingsSection title={t("settings.appearance.fonts.title")}>
         <View style={settingsStyles.card}>
           {showInterfaceFontFamilyRow ? (

@@ -23,6 +23,9 @@ import {
   useGlobalWebOverlayLayer,
   useWebOverlayRegistration,
 } from "@/lib/overlay-root";
+import { FloatingSurface } from "@/components/ui/floating";
+import { tooltipOverlayMotion } from "@/components/ui/overlay-motion";
+import { useAnimationsEnabled } from "@/hooks/use-settings";
 import { useHosts } from "@/runtime/host-runtime";
 import { orderHostsLocalFirst, type HostProfile } from "@/types/host-connection";
 import { buildSettingsAddHostRoute } from "@/utils/host-routes";
@@ -145,6 +148,7 @@ function HostChooserRow({
 
 export function HostChooserModal() {
   const { theme } = useUnistyles();
+  const animationsEnabled = useAnimationsEnabled();
   const hosts = useHosts();
   const request = useHostChooserStore((state) => state.request);
   const close = useHostChooserStore((state) => state.close);
@@ -241,11 +245,19 @@ export function HostChooserModal() {
 
   if (!request) return null;
 
+  const modalEntering = animationsEnabled ? tooltipOverlayMotion.entering.top : undefined;
+  const modalExiting = !isWeb && animationsEnabled ? tooltipOverlayMotion.exiting.top : undefined;
+
   const modal = (
     <Modal visible transparent animationType="fade" onRequestClose={close} testID="host-chooser">
       <View style={styles.overlay}>
         <Pressable style={styles.backdrop} onPress={close} />
-        <View ref={setWebOverlayScope} style={styles.panel}>
+        <FloatingSurface
+          ref={setWebOverlayScope}
+          entering={modalEntering}
+          exiting={modalExiting}
+          style={styles.panel}
+        >
           <View style={styles.header}>
             <Text style={styles.title}>{request.title}</Text>
             <TextInput
@@ -276,7 +288,7 @@ export function HostChooserModal() {
               />
             ))}
           </ScrollView>
-        </View>
+        </FloatingSurface>
       </View>
     </Modal>
   );

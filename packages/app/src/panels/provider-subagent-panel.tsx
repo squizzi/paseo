@@ -17,6 +17,7 @@ import { definePanel, type PanelDescriptor } from "@/panels/panel-registry";
 import { useSessionStore } from "@/stores/session-store";
 import { useSubagentsForParent } from "@/subagents/select";
 import { SubagentsTrack } from "@/subagents/track";
+import { useSubagentRowExitTracking } from "@/subagents/track-exit-motion";
 import {
   providerSubagentKey,
   providerSubagentLifecycleStatus,
@@ -52,15 +53,22 @@ function ProviderSubagentChildTrack({
   rows: ReturnType<typeof useSubagentsForParent>;
   onOpenProviderSubagent: (parentAgentId: string, subagentId: string) => void;
 }) {
-  if (rows.length === 0) return null;
+  const { displayRows, exitingIds, handleRowExited } = useSubagentRowExitTracking({
+    rows,
+    onArchiveSubagent: NOOP_SUBAGENT,
+  });
+  if (rows.length === 0 && exitingIds.size === 0) return null;
   return (
     <ComposerTrackBar>
       <SubagentsTrack
         serverId={serverId}
         rows={rows}
+        displayRows={displayRows}
+        exitingIds={exitingIds}
         onOpenSubagent={NOOP_SUBAGENT}
         onOpenProviderSubagent={onOpenProviderSubagent}
         onArchiveSubagent={NOOP_SUBAGENT}
+        onRowExited={handleRowExited}
       />
     </ComposerTrackBar>
   );

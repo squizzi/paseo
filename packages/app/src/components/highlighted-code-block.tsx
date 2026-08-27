@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Pressable, View, type StyleProp, type TextStyle, type ViewStyle } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { MarkdownTextSpan } from "@/components/markdown-text";
+import { StreamFadeMarkdownContent } from "@/agent-stream/stream-word-fade";
 import * as Clipboard from "expo-clipboard";
 import { Check, Copy } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
@@ -101,7 +102,7 @@ export const HighlightedCodeBlock = React.memo(function HighlightedCodeBlock({
         </MarkdownTextSpan>
       ) : (
         <MarkdownTextSpan style={innerTextStyle} copyTag="code">
-          {renderedCode}
+          <StreamFadeMarkdownContent content={renderedCode} />
         </MarkdownTextSpan>
       )}
       <CopyButton getCode={getCode} visible={controlsVisible} />
@@ -130,7 +131,7 @@ interface TokenSpanProps {
 const TokenSpan = React.memo(function TokenSpan({ token }: TokenSpanProps) {
   return (
     <MarkdownTextSpan style={token.style ? syntaxTokenStyleFor(token.style) : undefined}>
-      {token.text}
+      <StreamFadeMarkdownContent content={token.text} />
     </MarkdownTextSpan>
   );
 });
@@ -140,7 +141,11 @@ interface CodeTextSpanProps {
 }
 
 const CodeTextSpan = React.memo(function CodeTextSpan({ text }: CodeTextSpanProps) {
-  return <MarkdownTextSpan>{text}</MarkdownTextSpan>;
+  return (
+    <MarkdownTextSpan>
+      <StreamFadeMarkdownContent content={text} />
+    </MarkdownTextSpan>
+  );
 });
 
 interface SplitStyles {

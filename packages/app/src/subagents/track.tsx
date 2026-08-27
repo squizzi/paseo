@@ -21,6 +21,7 @@ import {
   buildSubagentRowPresentationData,
   countFinishedSubagents,
 } from "./track-presentation";
+import { SubagentRowExitMotion, useHeldMinHeight } from "./track-exit-motion";
 
 const ThemedArchive = withUnistyles(Archive);
 const ThemedUnlink = withUnistyles(Unlink);
@@ -33,10 +34,18 @@ const foregroundMutedColorMapping = (theme: Theme) => ({
 export interface SubagentsTrackProps {
   serverId: string;
   rows: SubagentRow[];
+  /**
+   * Live rows plus any still mid collapse. The caller owns `useSubagentRowExitTracking` so its own
+   * mount/unmount decision can see exiting rows too -- otherwise the panel disappears out from
+   * under the animation the moment the archived row leaves `rows`.
+   */
+  displayRows: SubagentRow[];
+  exitingIds: ReadonlySet<string>;
   onOpenSubagent: (id: string) => void;
   onOpenProviderSubagent: (parentAgentId: string, subagentId: string) => void;
   onArchiveSubagent: (id: string) => void;
   onArchiveFinished?: () => void;
+  onRowExited: (id: string) => void;
   archiveFinishedStatus?: ArchiveFinishedStatus;
   onDetachSubagent?: (id: string) => void;
 }
@@ -61,18 +70,27 @@ function useRowPresentation(row: SubagentRow, serverId: string): WorkspaceTabPre
 export function SubagentsTrack({
   serverId,
   rows,
+  displayRows,
+  exitingIds,
   onOpenSubagent,
   onOpenProviderSubagent,
   onArchiveSubagent,
   onArchiveFinished,
+  onRowExited,
   archiveFinishedStatus = IDLE_ARCHIVE_FINISHED_STATUS,
   onDetachSubagent,
 }: SubagentsTrackProps): ReactElement | null {
   const { t } = useTranslation();
+  const rowsHold = useHeldMinHeight(exitingIds.size > 0);
 
   const isArchivingFinished = archiveFinishedStatus.kind === "archiving";
   const isArchiveFinishedFailed = archiveFinishedStatus.kind === "failed";
-  if (rows.length === 0 && !isArchivingFinished && !isArchiveFinishedFailed) {
+  if (
+    rows.length === 0 &&
+    exitingIds.size === 0 &&
+    !isArchivingFinished &&
+    !isArchiveFinishedFailed
+  ) {
     return null;
   }
 
@@ -96,17 +114,21 @@ export function SubagentsTrack({
           />
         </ComposerTrackActions>
       ) : null}
-      {rows.map((row) => (
-        <SubagentsTrackRow
-          key={row.id}
-          row={row}
-          serverId={serverId}
-          onOpenSubagent={onOpenSubagent}
-          onOpenProviderSubagent={onOpenProviderSubagent}
-          onArchiveSubagent={onArchiveSubagent}
-          onDetachSubagent={onDetachSubagent}
-        />
-      ))}
+      <View onLayout={rowsHold.onLayout} style={rowsHold.style}>
+        {displayRows.map((row) => (
+          <SubagentTrackRowSlot
+            key={row.id}
+            row={row}
+            serverId={serverId}
+            exiting={exitingIds.has(row.id)}
+            onExited={onRowExited}
+            onOpenSubagent={onOpenSubagent}
+            onOpenProviderSubagent={onOpenProviderSubagent}
+            onArchiveSubagent={onArchiveSubagent}
+            onDetachSubagent={onDetachSubagent}
+          />
+        ))}
+      </View>
     </ComposerTrackPill>
   );
 }
@@ -166,6 +188,32 @@ function ArchiveFinishedRow({
     >
       {renderRow}
     </ComposerTrackRow>
+  );
+}
+
+interface SubagentTrackRowSlotProps {
+  serverId: string;
+  row: SubagentRow;
+  exiting: boolean;
+  onExited: (id: string) => void;
+  onOpenSubagent: (id: string) => void;
+  onOpenProviderSubagent: (parentAgentId: string, subagentId: string) => void;
+  onArchiveSubagent: (id: string) => void;
+  onDetachSubagent?: (id: string) => void;
+}
+
+/** Binds a row's id into its own exit callback so the list map stays a stable prop, not a closure. */
+function SubagentTrackRowSlot({
+  row,
+  exiting,
+  onExited,
+  ...rowProps
+}: SubagentTrackRowSlotProps): ReactElement {
+  const handleExited = useCallback(() => onExited(row.id), [onExited, row.id]);
+  return (
+    <SubagentRowExitMotion exiting={exiting} onExited={handleExited}>
+      <SubagentsTrackRow row={row} {...rowProps} />
+    </SubagentRowExitMotion>
   );
 }
 

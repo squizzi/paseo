@@ -273,6 +273,7 @@ export function CombinedModelSelector({
         onOpenChange={handleOpenChange}
         anchorRef={anchorRef}
         desktopPlacement={desktopPlacement}
+        desktopPreventInitialFlash={false}
         desktopMinWidth={desktopMinWidth}
         desktopLockWidth
         desktopFixedHeight={browser.desktopFixedHeight}

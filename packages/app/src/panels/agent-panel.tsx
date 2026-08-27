@@ -89,7 +89,12 @@ import type { Theme } from "@/styles/theme";
 import type { PendingPermission } from "@/types/shared";
 import type { StreamItem, TodoEntry } from "@/types/stream";
 import type { ViewedTimelineStatus, ViewedTimelineUiBridge } from "@/timeline/viewed-timeline-sync";
-import { useArchiveFinishedSubagents, useSubagentsForParent } from "@/subagents";
+import {
+  useArchiveFinishedSubagents,
+  useArchiveSubagent,
+  useSubagentRowExitTracking,
+  useSubagentsForParent,
+} from "@/subagents";
 import { getInitDeferred, getInitKey } from "@/utils/agent-initialization";
 import { derivePendingPermissionKey, normalizeAgentSnapshot } from "@/utils/agent-snapshots";
 import { applyLegacyDaemonWorkspaceOwnership } from "@/workspace/legacy-daemon-workspaces";
@@ -1162,6 +1167,18 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
     parentAgentId: agentId,
     rows: subagentRows,
   });
+  const archiveSubagent = useArchiveSubagent({ serverId });
+  const {
+    displayRows: subagentDisplayRows,
+    exitingIds: exitingSubagentIds,
+    handleArchiveSubagent,
+    handleArchiveFinished,
+    handleRowExited: handleSubagentRowExited,
+  } = useSubagentRowExitTracking({
+    rows: subagentRows,
+    onArchiveSubagent: archiveSubagent,
+    onArchiveFinished: archiveFinishedSubagents.archiveFinished,
+  });
   const hasPluginComposerPills = useHasPluginComposerPills(serverId, workspaceId, agentId);
   const hasActiveComposer = !agentState.archivedAt && !isArchivingCurrentAgent;
   const hasVisibleAgentTracks = hasAgentTracks({
@@ -1169,6 +1186,7 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
     tasks,
     archiveFinishedStatus: archiveFinishedSubagents.status,
     hasPluginComposerPills,
+    hasExitingSubagentRows: exitingSubagentIds.size > 0,
   });
   const rawAgentInputDraft = useAgentInputDraft({
     draftKey: buildDraftStoreKey({
@@ -1258,9 +1276,13 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
           agentId={agentId}
           cwd={cwd}
           subagentRows={subagentRows}
+          subagentDisplayRows={subagentDisplayRows}
+          exitingSubagentIds={exitingSubagentIds}
+          onArchiveSubagent={handleArchiveSubagent}
+          onRowExited={handleSubagentRowExited}
           tasks={tasks}
           archiveFinishedStatus={archiveFinishedSubagents.status}
-          onArchiveFinished={archiveFinishedSubagents.archiveFinished}
+          onArchiveFinished={handleArchiveFinished}
           hasPluginComposerPills={hasPluginComposerPills}
         />
       ) : null}

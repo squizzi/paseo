@@ -21,6 +21,7 @@ import * as Clipboard from "expo-clipboard";
 import { useTranslation } from "react-i18next";
 import { ChevronDown } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useReducedMotion } from "react-native-reanimated";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { Theme } from "@/styles/theme";
 import invariant from "tiny-invariant";
@@ -106,6 +107,7 @@ import { useWorkspace } from "@/stores/session-store-hooks";
 import { useWorkspaceTerminalSessionRetention } from "@/terminal/hooks/use-workspace-terminal-session-retention";
 import type { CheckoutStatusPayload } from "@/git/use-status-query";
 import { confirmDialog } from "@/utils/confirm-dialog";
+import { waitForTabCloseMotion } from "./workspace-tab-motion-helpers";
 import { useArchiveAgent } from "@/hooks/use-archive-agent";
 import { useStableEvent } from "@/hooks/use-stable-event";
 import { removeResidentBrowserWebview } from "@/desktop/browser/resident-webviews";
@@ -883,21 +885,26 @@ interface UseCloseTabsResult {
 function useCloseTabs(): UseCloseTabsResult {
   const pendingRef = useRef(new Set<string>());
   const [closingTabIds, setClosingTabIds] = useState<Set<string>>(EMPTY_SET);
+  const reducedMotion = useReducedMotion() === true;
 
-  const closeTab = useCallback(async (tabId: string, action: () => Promise<void>) => {
-    const normalized = tabId.trim();
-    if (!normalized || pendingRef.current.has(normalized)) {
-      return;
-    }
-    pendingRef.current.add(normalized);
-    setClosingTabIds(new Set(pendingRef.current));
-    try {
-      await action();
-    } finally {
-      pendingRef.current.delete(normalized);
+  const closeTab = useCallback(
+    async (tabId: string, action: () => Promise<void>) => {
+      const normalized = tabId.trim();
+      if (!normalized || pendingRef.current.has(normalized)) {
+        return;
+      }
+      pendingRef.current.add(normalized);
       setClosingTabIds(new Set(pendingRef.current));
-    }
-  }, []);
+      try {
+        await waitForTabCloseMotion(reducedMotion);
+        await action();
+      } finally {
+        pendingRef.current.delete(normalized);
+        setClosingTabIds(new Set(pendingRef.current));
+      }
+    },
+    [reducedMotion],
+  );
 
   return { closingTabIds, closeTab };
 }
@@ -2505,18 +2512,18 @@ function WorkspaceScreenContent({
   const handleCloseTerminalTab = useCallback(
     async (input: { tabId: string; terminalId: string }) => {
       const { tabId, terminalId } = input;
-      await closeTab(tabId, async () => {
-        const confirmed = await confirmDialog({
-          title: t("workspace.tabs.confirmations.closeTerminalTitle"),
-          message: t("workspace.tabs.confirmations.closeTerminalMessage"),
-          confirmLabel: t("workspace.tabs.confirmations.close"),
-          cancelLabel: t("workspace.tabs.confirmations.cancel"),
-          destructive: true,
-        });
-        if (!confirmed) {
-          return;
-        }
+      const confirmed = await confirmDialog({
+        title: t("workspace.tabs.confirmations.closeTerminalTitle"),
+        message: t("workspace.tabs.confirmations.closeTerminalMessage"),
+        confirmLabel: t("workspace.tabs.confirmations.close"),
+        cancelLabel: t("workspace.tabs.confirmations.cancel"),
+        destructive: true,
+      });
+      if (!confirmed) {
+        return;
+      }
 
+      await closeTab(tabId, async () => {
         removeTerminalFromCache(terminalId);
         setHoveredCloseTabKey((current) => (current === tabId ? null : current));
         if (persistenceKey) {
@@ -2543,29 +2550,29 @@ function WorkspaceScreenContent({
   const handleCloseAgentTab = useCallback(
     async (input: { tabId: string; agentId: string }) => {
       const { tabId, agentId } = input;
-      await closeTab(tabId, async () => {
-        if (!normalizedServerId) {
+      if (!normalizedServerId) {
+        return;
+      }
+
+      const agent =
+        useSessionStore.getState().sessions[normalizedServerId]?.agents?.get(agentId) ?? null;
+      let closePolicy = resolveCloseAgentTabPolicy(agent);
+      const isRunning = agent?.status === "running";
+
+      if (isRunning && closePolicy.kind === "archive-on-close") {
+        const confirmed = await confirmDialog({
+          title: t("workspace.tabs.confirmations.archiveRunningAgentTitle"),
+          message: t("workspace.tabs.confirmations.archiveRunningAgentMessage"),
+          confirmLabel: t("workspace.tabs.confirmations.archive"),
+          cancelLabel: t("workspace.tabs.confirmations.cancel"),
+          destructive: true,
+        });
+        if (!confirmed) {
           return;
         }
+      }
 
-        const agent =
-          useSessionStore.getState().sessions[normalizedServerId]?.agents?.get(agentId) ?? null;
-        let closePolicy = resolveCloseAgentTabPolicy(agent);
-        const isRunning = agent?.status === "running";
-
-        if (isRunning && closePolicy.kind === "archive-on-close") {
-          const confirmed = await confirmDialog({
-            title: t("workspace.tabs.confirmations.archiveRunningAgentTitle"),
-            message: t("workspace.tabs.confirmations.archiveRunningAgentMessage"),
-            confirmLabel: t("workspace.tabs.confirmations.archive"),
-            cancelLabel: t("workspace.tabs.confirmations.cancel"),
-            destructive: true,
-          });
-          if (!confirmed) {
-            return;
-          }
-        }
-
+      await closeTab(tabId, async () => {
         if (closePolicy.kind === "layout-only") {
           const sessionClient = useSessionStore.getState().sessions[normalizedServerId]?.client;
           if (!sessionClient) {
@@ -2663,10 +2670,13 @@ function WorkspaceScreenContent({
         await handleCloseAgentTab({ tabId, agentId: tab.target.agentId });
         return;
       }
-      handleClosePassiveTab({ tabId, target: tab.target });
+      await closeTab(tabId, async () => {
+        handleClosePassiveTab({ tabId, target: tab.target });
+      });
     },
     [
       allTabDescriptorsById,
+      closeTab,
       confirmDiscardModifiedTab,
       handleCloseAgentTab,
       handleClosePassiveTab,

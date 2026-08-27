@@ -1,5 +1,8 @@
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import { router } from "expo-router";
+import { FloatingSurface } from "@/components/ui/floating";
+import { tooltipOverlayMotion } from "@/components/ui/overlay-motion";
+import { useAnimationsEnabled } from "@/hooks/use-settings";
 import type { WorkspaceProjectDescriptorPayload } from "@getpaseo/protocol/messages";
 import {
   ArrowLeft,
@@ -802,6 +805,7 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
     },
     [handleKey],
   );
+  const animationsEnabled = useAnimationsEnabled();
   const setWebOverlayScope = useWebOverlayRegistration({
     active: isWeb,
     layer: modalLayer,
@@ -846,12 +850,17 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
       ? joinDirectoryPath(page.parentPath, page.name.trim())
       : null;
 
+  const modalEntering = animationsEnabled ? tooltipOverlayMotion.entering.top : undefined;
+  const modalExiting = !isWeb && animationsEnabled ? tooltipOverlayMotion.exiting.top : undefined;
+
   const modal = (
     <Modal visible transparent animationType="fade" onRequestClose={isWeb ? undefined : handleBack}>
       <View style={styles.overlay} testID="add-project-flow">
         <Pressable style={styles.backdrop} onPress={onClose} testID="add-project-flow-backdrop" />
-        <View
+        <FloatingSurface
           ref={setWebOverlayScope}
+          entering={modalEntering}
+          exiting={modalExiting}
           style={styles.panel}
           testID={`add-project-flow-page-${page.kind}`}
           accessibilityLabel={`Add project: ${page.kind}`}
@@ -958,7 +967,7 @@ export function AddProjectFlow({ request, onClose }: AddProjectFlowProps) {
             <FlowHint keys={SELECT_HINT_KEYS} action="Select" />
             <FlowHint keys={ESCAPE_HINT_KEYS} action={state.pages.length > 1 ? "Back" : "Close"} />
           </View>
-        </View>
+        </FloatingSurface>
       </View>
     </Modal>
   );

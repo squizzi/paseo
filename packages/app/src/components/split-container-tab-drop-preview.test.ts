@@ -70,4 +70,22 @@ describe("computeTabDropPreview", () => {
       indicatorIndex: 4,
     });
   });
+
+  it("moves a same-pane drop on the last tab to the end from the leading half", () => {
+    expect(
+      computeTabDropPreview({
+        activePaneId: "pane",
+        activeTabId: "a",
+        overPaneId: "pane",
+        overTabId: "d",
+        targetTabs,
+        activeRect: { left: 410, width: 40 },
+        overRect: { left: 400, width: 100 },
+      }),
+    ).toEqual({
+      paneId: "pane",
+      insertionIndex: 3,
+      indicatorIndex: 3,
+    });
+  });
 });

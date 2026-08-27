@@ -33,21 +33,23 @@ export function computeTabDropPreview(input: ComputeTabDropPreviewInput): TabDro
   const insertAfterTarget = activeCenterX >= overCenterX;
 
   const indicatorIndex = targetIndex + (insertAfterTarget ? 1 : 0);
-  let insertionIndex = indicatorIndex;
-  if (input.activePaneId === input.overPaneId) {
-    const sourceIndex = input.targetTabs.findIndex((tab) => tab.tabId === input.activeTabId);
-    if (sourceIndex < 0) {
-      return null;
-    }
-    if (sourceIndex < insertionIndex) {
-      insertionIndex -= 1;
-    }
-    insertionIndex = Math.max(0, Math.min(input.targetTabs.length - 1, insertionIndex));
+  // Same-pane persist must match sortable: the over tab is the arrayMove
+  // destination. Leading/trailing half is only for cross-pane insertion.
+  if (input.activePaneId !== input.overPaneId) {
+    return {
+      paneId: input.overPaneId,
+      insertionIndex: indicatorIndex,
+      indicatorIndex,
+    };
+  }
+
+  if (!input.targetTabs.some((tab) => tab.tabId === input.activeTabId)) {
+    return null;
   }
 
   return {
     paneId: input.overPaneId,
-    insertionIndex,
+    insertionIndex: targetIndex,
     indicatorIndex,
   };
 }

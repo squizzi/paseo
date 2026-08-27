@@ -104,7 +104,11 @@ function appendRun<TGroup>(input: {
   const run = createRun(input.calls, input.isSealed);
   const host = createHost(run);
   input.output.push(host);
-  input.groups.set(host.id, input.buildGroup(run));
+  const group = input.buildGroup(run);
+  input.groups.set(host.id, group);
+  for (const call of run.calls) {
+    input.groups.set(call.id, group);
+  }
 }
 
 export function prepareGroupedHistory<TGroup>(input: {
@@ -167,7 +171,11 @@ export function groupLiveToolCalls<TGroup>(input: {
       head.push(createHost(run));
     }
     if (hostPlacement === "head" || pendingIncludesHead || !isSealed) {
-      liveGroups.set(run.id, input.buildGroup(run));
+      const group = input.buildGroup(run);
+      liveGroups.set(run.id, group);
+      for (const call of run.calls) {
+        liveGroups.set(call.id, group);
+      }
     }
     pending = [];
     hostPlacement = null;
@@ -214,6 +222,9 @@ export function groupLiveToolCalls<TGroup>(input: {
   let historyGroupUpdatesByHostId: Map<string, TGroup> | null = null;
   for (const [id, group] of liveGroups) {
     groupsByHostId.set(id, group);
+    for (const call of (group as { run?: ToolCallRun }).run?.calls ?? []) {
+      groupsByHostId.set(call.id, group);
+    }
     if (input.history.groupsByHostId.has(id)) {
       historyGroupUpdatesByHostId ??= new Map();
       historyGroupUpdatesByHostId.set(id, group);

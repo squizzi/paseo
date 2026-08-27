@@ -5,7 +5,9 @@ import {
   Pressable,
   ScrollView,
   type GestureResponderEvent,
+  type LayoutChangeEvent,
   type PressableStateCallbackType,
+  type Role,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
@@ -15,7 +17,10 @@ import {
   useMemo,
   useState,
   useEffect,
+  useLayoutEffect,
   useRef,
+  createContext,
+  useContext,
   type ReactElement,
   type MutableRefObject,
   type Ref,
@@ -99,6 +104,7 @@ import { useLongPressDragInteraction } from "@/components/sidebar/use-long-press
 import { PinnedSectionHeader } from "@/components/sidebar/pinned-section-header";
 import { SidebarGroupToggleRow } from "@/components/sidebar/sidebar-group-toggle-row";
 import { useLimitedSidebarGroup } from "@/components/sidebar/use-limited-sidebar-group";
+import { SidebarCollapseClip } from "@/components/sidebar/collapse-clip";
 import {
   SidebarWorkspaceRowFrame,
   SidebarWorkspaceRowContent,
@@ -125,6 +131,7 @@ import type { ShortcutKey } from "@/utils/format-shortcut";
 import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
 import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
 import { useWorkspaceReadState } from "@/hooks/use-workspace-read-state";
+import { useAnimationsEnabled } from "@/hooks/use-settings";
 import type { PrHint } from "@/git/use-pr-status-query";
 import {
   buildSidebarProjectRowModel,
@@ -151,6 +158,31 @@ import type { HostBadgeModel } from "@/hosts/appearance";
 import { useHostBadges } from "@/hosts/use-host-badges";
 import { useSidebarRowItems } from "@/components/sidebar/display-preferences/model";
 import { PullRequestStateIcon } from "@/git/pull-request-state-icon";
+import Animated, {
+  cancelAnimation,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
+import {
+  SIDEBAR_ITEM_MOTION_OFFSET,
+  isNewSidebarMotionItem,
+  rememberSidebarMotionItem,
+  resolveSidebarItemMotionContentResize,
+  resolveSidebarItemMotionFrameStyle,
+  seedSidebarItemMotionKeys,
+  shouldMeasureSidebarItemEnterOffscreen,
+  shouldRestoreSidebarItemMotionAfterExit,
+  sidebarProjectMotionKey,
+  sidebarWorkspaceMotionKey,
+} from "@/components/sidebar/item-motion";
+import {
+  MOTION_ARRIVE_TIMING,
+  MOTION_CLIP_AUTO,
+  MOTION_EXIT_DURATION_MS,
+  MOTION_EXIT_TIMING,
+} from "@/styles/motion";
 
 const workspaceKeyExtractor = (workspace: SidebarWorkspacePlacement) => workspace.workspaceKey;
 
@@ -163,6 +195,253 @@ const ThemedPlus = withUnistyles(Plus);
 const ThemedMoreVertical = withUnistyles(MoreVertical);
 const ThemedTrash2 = withUnistyles(Trash2);
 const ThemedSettings = withUnistyles(Settings);
+
+interface SidebarItemMotionRegistry {
+  didHydrate: MutableRefObject<boolean>;
+  seenKeys: MutableRefObject<Set<string>>;
+}
+
+const SidebarItemMotionContext = createContext<SidebarItemMotionRegistry | null>(null);
+const EMPTY_SIDEBAR_ITEM_MOTION_KEYS: ReadonlySet<string> = new Set();
+
+function collectSidebarItemMotionKeys(input: {
+  projects: readonly SidebarProjectEntry[];
+  pinnedChats: readonly SidebarWorkspacePlacement[];
+  workspaceGroups: readonly SidebarWorkspaceGroup[];
+}): string[] {
+  const keys: string[] = [];
+  for (const project of input.projects) {
+    keys.push(sidebarProjectMotionKey(project.viewKey));
+    for (const workspace of project.workspaces) {
+      keys.push(sidebarWorkspaceMotionKey(workspace.workspaceKey));
+    }
+  }
+  for (const workspace of input.pinnedChats) {
+    keys.push(sidebarWorkspaceMotionKey(workspace.workspaceKey));
+  }
+  for (const group of input.workspaceGroups) {
+    for (const workspace of group.rows) {
+      keys.push(sidebarWorkspaceMotionKey(workspace.workspaceKey));
+    }
+  }
+  return keys;
+}
+
+function SidebarItemMotionProvider({
+  children,
+  itemKeys,
+  ready,
+}: PropsWithChildren<{ itemKeys: readonly string[]; ready: boolean }>) {
+  const didHydrate = useRef(false);
+  const seenKeys = useRef(new Set<string>());
+  const registry = useMemo(() => ({ didHydrate, seenKeys }), []);
+
+  seedSidebarItemMotionKeys({
+    seenKeys: seenKeys.current,
+    didHydrate: didHydrate.current,
+    keys: itemKeys,
+  });
+
+  useEffect(() => {
+    if (!ready) {
+      return;
+    }
+    didHydrate.current = true;
+  }, [ready]);
+
+  return (
+    <SidebarItemMotionContext.Provider value={registry}>
+      {children}
+    </SidebarItemMotionContext.Provider>
+  );
+}
+
+function useIsNewSidebarItem(key: string): boolean {
+  const registry = useContext(SidebarItemMotionContext);
+  const isNew = isNewSidebarMotionItem({
+    key,
+    didHydrate: registry?.didHydrate.current === true,
+    seenKeys: registry?.seenKeys.current ?? EMPTY_SIDEBAR_ITEM_MOTION_KEYS,
+  });
+
+  useEffect(() => {
+    if (!registry) {
+      return undefined;
+    }
+    return rememberSidebarMotionItem({
+      seenKeys: registry.seenKeys.current,
+      key,
+    });
+  }, [key, registry]);
+
+  return isNew;
+}
+
+function useSidebarItemMotion(input: {
+  entering: boolean;
+  exiting: boolean;
+  easeContentResize?: boolean;
+}) {
+  const offset = useSharedValue(input.entering ? -SIDEBAR_ITEM_MOTION_OFFSET : 0);
+  const opacity = useSharedValue(input.entering ? 0 : 1);
+  const height = useSharedValue(input.entering ? 0 : MOTION_CLIP_AUTO);
+  const measuredHeight = useRef(0);
+  const didArmEnter = useRef(false);
+  const didArmExit = useRef(false);
+  const [hasMeasuredEnter, setHasMeasuredEnter] = useState(!input.entering);
+  const measureOffscreen = shouldMeasureSidebarItemEnterOffscreen({
+    entering: input.entering,
+    hasMeasuredEnter,
+  });
+
+  const handleLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      const nextHeight = event.nativeEvent.layout.height;
+      const decision = resolveSidebarItemMotionContentResize({
+        nextHeight,
+        previousHeight: measuredHeight.current,
+        entering: input.entering,
+        exiting: input.exiting,
+        measureOffscreen,
+        easeContentResize: input.easeContentResize,
+      });
+      if (measureOffscreen && nextHeight > 0) {
+        setHasMeasuredEnter(true);
+      }
+      if (decision.action === "ignore") {
+        return;
+      }
+      if (decision.action === "record") {
+        measuredHeight.current = decision.height;
+        return;
+      }
+      measuredHeight.current = decision.to;
+      cancelAnimation(height);
+      height.value = decision.from;
+      height.value = withTiming(decision.to, MOTION_ARRIVE_TIMING, (finished) => {
+        if (finished) {
+          height.value = MOTION_CLIP_AUTO;
+        }
+      });
+    },
+    [height, input.easeContentResize, input.entering, input.exiting, measureOffscreen],
+  );
+
+  useLayoutEffect(() => {
+    if (input.exiting) {
+      didArmExit.current = true;
+      if (height.value < 0 && measuredHeight.current > 0) {
+        height.value = measuredHeight.current;
+      }
+      height.value = withTiming(0, MOTION_EXIT_TIMING);
+      offset.value = withTiming(SIDEBAR_ITEM_MOTION_OFFSET, MOTION_EXIT_TIMING);
+      opacity.value = withTiming(0, MOTION_EXIT_TIMING);
+      return;
+    }
+
+    if (
+      shouldRestoreSidebarItemMotionAfterExit({
+        exiting: input.exiting,
+        didArmExit: didArmExit.current,
+      })
+    ) {
+      didArmExit.current = false;
+      const restoreHeight = measuredHeight.current;
+      if (restoreHeight > 0) {
+        height.value = withTiming(restoreHeight, MOTION_ARRIVE_TIMING, (finished) => {
+          if (finished) {
+            height.value = MOTION_CLIP_AUTO;
+          }
+        });
+      } else {
+        height.value = MOTION_CLIP_AUTO;
+      }
+      offset.value = withTiming(0, MOTION_ARRIVE_TIMING);
+      opacity.value = withTiming(1, MOTION_ARRIVE_TIMING);
+      return;
+    }
+
+    if (input.entering && hasMeasuredEnter && !didArmEnter.current) {
+      didArmEnter.current = true;
+      height.value = 0;
+      offset.value = -SIDEBAR_ITEM_MOTION_OFFSET;
+      opacity.value = 0;
+      height.value = withTiming(measuredHeight.current, MOTION_ARRIVE_TIMING, (finished) => {
+        if (finished) {
+          height.value = MOTION_CLIP_AUTO;
+        }
+      });
+      offset.value = withTiming(0, MOTION_ARRIVE_TIMING);
+      opacity.value = withTiming(1, MOTION_ARRIVE_TIMING);
+      return;
+    }
+
+    if (!input.entering) {
+      didArmEnter.current = false;
+      offset.value = withTiming(0, MOTION_ARRIVE_TIMING);
+      opacity.value = withTiming(1, MOTION_ARRIVE_TIMING);
+    }
+  }, [hasMeasuredEnter, height, input.entering, input.exiting, offset, opacity]);
+
+  const style = useAnimatedStyle(() =>
+    resolveSidebarItemMotionFrameStyle({
+      height: height.value,
+      opacity: opacity.value,
+      offset: offset.value,
+    }),
+  );
+
+  const measureStyle = measureOffscreen ? styles.itemMotionMeasureOffscreen : undefined;
+
+  return { style, measureStyle, onLayout: handleLayout };
+}
+
+function SidebarItemMotionView({
+  entering,
+  exiting,
+  easeContentResize,
+  innerStyle,
+  role,
+  accessibilityLabel,
+  children,
+}: PropsWithChildren<{
+  entering: boolean;
+  exiting: boolean;
+  easeContentResize?: boolean;
+  innerStyle?: StyleProp<ViewStyle>;
+  role?: Role;
+  accessibilityLabel?: string;
+}>) {
+  const animationsEnabled = useAnimationsEnabled();
+  const motion = useSidebarItemMotion({
+    entering: entering && animationsEnabled,
+    exiting: exiting && animationsEnabled,
+    easeContentResize,
+  });
+  return (
+    <Animated.View
+      role={role}
+      accessibilityLabel={accessibilityLabel}
+      testID="sidebar-item-motion-frame"
+      style={[styles.itemMotionFrame, motion.style]}
+    >
+      <View
+        onLayout={motion.onLayout}
+        style={[innerStyle, motion.measureStyle]}
+        collapsable={false}
+      >
+        {children}
+      </View>
+    </Animated.View>
+  );
+}
+
+function waitForSidebarItemMotion(reducedMotion: boolean): Promise<void> {
+  if (reducedMotion) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => setTimeout(resolve, MOTION_EXIT_DURATION_MS));
+}
 
 const foregroundColorMapping = (theme: Theme) => ({
   color: theme.colors.foreground,
@@ -236,6 +515,7 @@ interface SidebarWorkspaceListProps {
   /** Gesture ref for coordinating with parent gestures (e.g., sidebar close) */
   parentGestureRef?: MutableRefObject<GestureType | undefined>;
   dragGestureHostActive?: boolean;
+  itemMotionReady: boolean;
 }
 
 interface ProjectHeaderRowProps {
@@ -1247,6 +1527,10 @@ function WorkspaceRowWithMenu({
   const [isHidingWorkspace, setIsHidingWorkspace] = useState(false);
   const [isRenameOpen, setIsRenameOpen] = useState(false);
   const isArchiving = workspace.archivingAt !== null || isHidingWorkspace;
+  const reducedMotion = useReducedMotion();
+  const animationsEnabled = useAnimationsEnabled();
+  const skipItemMotion = reducedMotion === true || !animationsEnabled;
+  const isNew = useIsNewSidebarItem(sidebarWorkspaceMotionKey(workspace.workspaceKey));
   const redirectAfterArchive = useCallback(() => {
     redirectIfArchivingActiveWorkspace({
       serverId: workspace.serverId,
@@ -1254,6 +1538,10 @@ function WorkspaceRowWithMenu({
       activeWorkspaceSelection: selectionForSelectedWorkspace(selected, workspace),
     });
   }, [selected, workspace]);
+  const animateBeforeArchive = useCallback(
+    () => waitForSidebarItemMotion(skipItemMotion),
+    [skipItemMotion],
+  );
 
   const archiveController = useWorkspaceArchive({
     serverId: workspace.serverId,
@@ -1261,6 +1549,7 @@ function WorkspaceRowWithMenu({
     workspaceKind: workspace.workspaceKind,
     name: workspace.name,
     ...toWorktreeArchiveRisk(workspace),
+    onBeforeArchive: animateBeforeArchive,
     onArchiveStarted: redirectAfterArchive,
     onSetHiding: setIsHidingWorkspace,
   });
@@ -1325,35 +1614,37 @@ function WorkspaceRowWithMenu({
 
   return (
     <>
-      <WorkspaceRowInner
-        workspace={workspace}
-        hostBadge={hostBadge}
-        leadingProjectName={leadingProjectName}
-        leadingProjectIconDataUri={leadingProjectIconDataUri}
-        selected={selected}
-        shortcutNumber={shortcutNumber}
-        showShortcutBadge={showShortcutBadge}
-        onPress={onPress}
-        drag={drag}
-        isDragging={isDragging}
-        isArchiving={isArchiving}
-        isCreating={isCreating}
-        dragHandleProps={dragHandleProps}
-        menuController={null}
-        archiveLabel={t("sidebar.workspace.actions.archive")}
-        archiveStatus={isArchiving ? "pending" : "idle"}
-        archivePendingLabel={t("sidebar.workspace.actions.archiving")}
-        onArchive={handleArchive}
-        onCopyBranchName={canCopyBranchName ? handleCopyBranchName : undefined}
-        onCopyPath={handleCopyPath}
-        onRename={handleOpenRename}
-        onMarkAsRead={hasClearableAttention ? handleMarkAsRead : undefined}
-        onMarkAsUnread={canMarkUnread ? handleMarkAsUnread : undefined}
-        archiveShortcutKeys={selected ? archiveShortcutKeys : null}
-        isPinned={isPinned}
-        onTogglePin={onTogglePin}
-        reserveIdleStatusIndicatorSpace={reserveIdleStatusIndicatorSpace}
-      />
+      <SidebarItemMotionView entering={isNew} exiting={isArchiving}>
+        <WorkspaceRowInner
+          workspace={workspace}
+          hostBadge={hostBadge}
+          leadingProjectName={leadingProjectName}
+          leadingProjectIconDataUri={leadingProjectIconDataUri}
+          selected={selected}
+          shortcutNumber={shortcutNumber}
+          showShortcutBadge={showShortcutBadge}
+          onPress={onPress}
+          drag={drag}
+          isDragging={isDragging}
+          isArchiving={isArchiving}
+          isCreating={isCreating}
+          dragHandleProps={dragHandleProps}
+          menuController={null}
+          archiveLabel={t("sidebar.workspace.actions.archive")}
+          archiveStatus={isArchiving ? "pending" : "idle"}
+          archivePendingLabel={t("sidebar.workspace.actions.archiving")}
+          onArchive={handleArchive}
+          onCopyBranchName={canCopyBranchName ? handleCopyBranchName : undefined}
+          onCopyPath={handleCopyPath}
+          onRename={handleOpenRename}
+          onMarkAsRead={hasClearableAttention ? handleMarkAsRead : undefined}
+          onMarkAsUnread={canMarkUnread ? handleMarkAsUnread : undefined}
+          archiveShortcutKeys={selected ? archiveShortcutKeys : null}
+          isPinned={isPinned}
+          onTogglePin={onTogglePin}
+          reserveIdleStatusIndicatorSpace={reserveIdleStatusIndicatorSpace}
+        />
+      </SidebarItemMotionView>
       <WorkspaceRenameModal
         visible={isRenameOpen}
         workspace={workspace}
@@ -1690,6 +1981,10 @@ function ProjectBlock({
   const toast = useToast();
   const { t } = useTranslation();
   const [isRemovingProject, setIsRemovingProject] = useState(false);
+  const reducedMotion = useReducedMotion();
+  const animationsEnabled = useAnimationsEnabled();
+  const skipItemMotion = reducedMotion === true || !animationsEnabled;
+  const isNew = useIsNewSidebarItem(sidebarProjectMotionKey(project.viewKey));
 
   const handleRemoveProject = useCallback(() => {
     if (isRemovingProject) {
@@ -1709,6 +2004,7 @@ function ProjectBlock({
       }
 
       setIsRemovingProject(true);
+      await waitForSidebarItemMotion(skipItemMotion);
       const readiness = getCurrentProjectRemoveReadiness({
         hosts: project.hosts,
       });
@@ -1741,57 +2037,59 @@ function ProjectBlock({
           setIsRemovingProject(false);
         });
     })();
-  }, [isRemovingProject, displayName, t, toast, project.hosts]);
+  }, [isRemovingProject, displayName, t, toast, project.hosts, skipItemMotion]);
 
   const handleToggleCollapsed = useCallback(() => {
     onToggleCollapsed(project.viewKey);
   }, [onToggleCollapsed, project.viewKey]);
 
   let projectChildren = null;
-  if (!collapsed) {
-    if (project.workspaces.length > 0) {
-      projectChildren = (
-        <>
-          <DraggableList
-            testID={`sidebar-workspace-list-${project.viewKey}`}
-            data={visibleWorkspaces}
-            keyExtractor={workspaceKeyExtractor}
-            renderItem={renderWorkspace}
-            onDragEnd={handleWorkspaceDragEnd}
-            extraData={activeWorkspaceSelectionKey(activeWorkspaceSelection)}
-            scrollEnabled={false}
-            useDragHandle
-            nestable={useNestable}
-            simultaneousGestureRef={parentGestureRef}
-            gestureHostPresented={dragGestureHostActive}
-            containerStyle={styles.workspaceListContainer}
-          />
-          {canToggleWorkspaces ? (
-            <SidebarGroupToggleRow
-              expanded={workspacesExpanded}
-              onPress={toggleWorkspacesExpanded}
-              testID={`sidebar-project-show-more-${project.viewKey}`}
-            />
-          ) : null}
-        </>
-      );
-    } else if (rowModel.trailingAction.kind === "new_workspace") {
-      projectChildren = (
-        <NewWorkspaceGhostRow
-          project={project}
-          displayName={displayName}
-          worktreeTarget={rowModel.trailingAction.target}
-          onWorkspacePress={onWorkspacePress}
+  if (project.workspaces.length > 0) {
+    projectChildren = (
+      <>
+        <DraggableList
+          testID={`sidebar-workspace-list-${project.viewKey}`}
+          data={visibleWorkspaces}
+          keyExtractor={workspaceKeyExtractor}
+          renderItem={renderWorkspace}
+          onDragEnd={handleWorkspaceDragEnd}
+          extraData={activeWorkspaceSelectionKey(activeWorkspaceSelection)}
+          scrollEnabled={false}
+          useDragHandle
+          nestable={useNestable}
+          simultaneousGestureRef={parentGestureRef}
+          gestureHostPresented={dragGestureHostActive}
+          containerStyle={styles.workspaceListContainer}
         />
-      );
-    }
+        {canToggleWorkspaces ? (
+          <SidebarGroupToggleRow
+            expanded={workspacesExpanded}
+            onPress={toggleWorkspacesExpanded}
+            testID={`sidebar-project-show-more-${project.viewKey}`}
+          />
+        ) : null}
+      </>
+    );
+  } else if (rowModel.trailingAction.kind === "new_workspace") {
+    projectChildren = (
+      <NewWorkspaceGhostRow
+        project={project}
+        displayName={displayName}
+        worktreeTarget={rowModel.trailingAction.target}
+        onWorkspacePress={onWorkspacePress}
+      />
+    );
   }
 
+  // Add/archive grow or shrink the inserted item's height. Collapse/expand clips
+  // the child list so the project name stays put.
   return (
-    <View
+    <SidebarItemMotionView
+      entering={isNew}
+      exiting={isRemovingProject}
+      easeContentResize={false}
       role="group"
       accessibilityLabel={displayName}
-      style={projectChildren ? styles.projectBlockExpanded : undefined}
     >
       <ProjectHeaderRow
         project={project}
@@ -1816,8 +2114,16 @@ function ProjectBlock({
         dragHandleProps={dragHandleProps}
       />
 
-      {projectChildren}
-    </View>
+      {projectChildren ? (
+        <SidebarCollapseClip
+          expanded={!collapsed}
+          innerStyle={styles.projectBlockExpanded}
+          testID={`sidebar-project-collapse-clip-${project.viewKey}`}
+        >
+          {projectChildren}
+        </SidebarCollapseClip>
+      ) : null}
+    </SidebarItemMotionView>
   );
 }
 
@@ -1902,6 +2208,7 @@ export function SidebarWorkspaceList({
   listHeaderComponent,
   parentGestureRef,
   dragGestureHostActive,
+  itemMotionReady,
 }: SidebarWorkspaceListProps) {
   const pathname = usePathname();
   const hosts = useHosts();
@@ -1958,6 +2265,15 @@ export function SidebarWorkspaceList({
   // project or is not applied at all — it can narrow this list but never empty it.
   const sidebarFilterEmpty =
     hasActiveLabelFilter && hasProjectsBeforeFilter && projects.length === 0;
+  const itemMotionKeys = useMemo(
+    () =>
+      collectSidebarItemMotionKeys({
+        projects,
+        pinnedChats: pinnedGroups.pinnedChats,
+        workspaceGroups,
+      }),
+    [pinnedGroups.pinnedChats, projects, workspaceGroups],
+  );
 
   // Project mode is the one that keeps its project headers; every other grouping mode is a flat
   // list of grouped rows, so a new mode lands in the grouped branch rather than silently in this
@@ -2007,7 +2323,11 @@ export function SidebarWorkspaceList({
       />
     );
 
-  return content;
+  return (
+    <SidebarItemMotionProvider itemKeys={itemMotionKeys} ready={itemMotionReady}>
+      {content}
+    </SidebarItemMotionProvider>
+  );
 }
 
 /**
@@ -2108,6 +2428,7 @@ function ProjectModeList({
   | "hasProjectsBeforeFilter"
   | "isRefreshing"
   | "onRefresh"
+  | "itemMotionReady"
 > & {
   /** Swaps the list body for the label filter's empty state. Never the header above it. */
   sidebarFilterEmpty: boolean;
@@ -2419,31 +2740,29 @@ function ProjectModeList({
       {pinnedChats.length > 0 ? (
         <View style={styles.pinnedSection} testID="sidebar-pinned-section">
           <PinnedSectionHeader collapsed={pinnedCollapsed} onToggle={togglePinnedCollapsed} />
-          {pinnedCollapsed ? null : (
-            <>
-              <DraggableList
-                testID="sidebar-pinned-list"
-                data={visiblePinnedChats}
-                keyExtractor={workspaceKeyExtractor}
-                renderItem={renderPinnedChat}
-                onDragEnd={onPinnedWorkspaceReorder}
-                extraData={activeWorkspaceSelectionKey(activeWorkspaceSelection)}
-                scrollEnabled={false}
-                useDragHandle
-                nestable={platformIsNative}
-                simultaneousGestureRef={parentGestureRef}
-                gestureHostPresented={dragGestureHostActive}
-                containerStyle={styles.workspaceListContainer}
+          <SidebarCollapseClip expanded={!pinnedCollapsed} testID="sidebar-pinned-collapse-clip">
+            <DraggableList
+              testID="sidebar-pinned-list"
+              data={visiblePinnedChats}
+              keyExtractor={workspaceKeyExtractor}
+              renderItem={renderPinnedChat}
+              onDragEnd={onPinnedWorkspaceReorder}
+              extraData={activeWorkspaceSelectionKey(activeWorkspaceSelection)}
+              scrollEnabled={false}
+              useDragHandle
+              nestable={platformIsNative}
+              simultaneousGestureRef={parentGestureRef}
+              gestureHostPresented={dragGestureHostActive}
+              containerStyle={styles.workspaceListContainer}
+            />
+            {canTogglePinnedChats ? (
+              <SidebarGroupToggleRow
+                expanded={pinnedChatsExpanded}
+                onPress={togglePinnedChatsExpanded}
+                testID="sidebar-pinned-show-more"
               />
-              {canTogglePinnedChats ? (
-                <SidebarGroupToggleRow
-                  expanded={pinnedChatsExpanded}
-                  onPress={togglePinnedChatsExpanded}
-                  testID="sidebar-pinned-show-more"
-                />
-              ) : null}
-            </>
-          )}
+            ) : null}
+          </SidebarCollapseClip>
         </View>
       ) : null}
       {/* The header carries the display menu, which is the only way back out of a filter, so it
@@ -2492,6 +2811,17 @@ function ProjectModeList({
 const styles = StyleSheet.create((theme) => ({
   container: {
     flex: 1,
+  },
+  itemMotionMeasureOffscreen: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    opacity: 0,
+    pointerEvents: "none",
+  },
+  itemMotionFrame: {
+    width: "100%",
+    position: "relative",
   },
   list: {
     flex: 1,

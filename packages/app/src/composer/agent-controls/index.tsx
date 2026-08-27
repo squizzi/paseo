@@ -1049,6 +1049,7 @@ function DesktopAgentControlsContent(props: DesktopAgentControlsContentProps) {
             onOpenChange={handleThinkingOpenChange}
             anchorRef={thinkingAnchorRef}
             desktopPlacement="top-start"
+            desktopPreventInitialFlash={false}
             desktopMinWidth={200}
             renderOption={renderThinkingOption}
           />
