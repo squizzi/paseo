@@ -44,6 +44,7 @@ import {
 import { useChatFindSelectedMessageId } from "@/agent-stream/chat-find";
 import { getStreamItemMessageId } from "./presentation";
 import { useScrollToMessage } from "./use-scroll-to-message.web";
+import { CHAT_ENTRY_DURATION_MS } from "./chat-entry-motion";
 
 interface CreateWebStreamStrategyInput {
   isMobileBreakpoint: boolean;
@@ -58,6 +59,9 @@ interface HistoryStartPrependAnchor {
 type ScrollBehaviorLike = "auto" | "smooth";
 
 const WEB_BOTTOM_SETTLE_TIMEOUT_MS = 200;
+// The timeline rise and every per-row layout transition move together on an
+// insertion, so they share one duration; a mismatch desyncs into a settle jump.
+const STREAM_RISE_DURATION_MS = CHAT_ENTRY_DURATION_MS;
 const USER_SCROLL_DELTA_EPSILON = 1;
 const BOTTOM_OVERSCROLL_TOLERANCE_PX = 2;
 const AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 64;
@@ -201,6 +205,15 @@ function scrollElementToBottom(
   });
 }
 
+function readElementTranslateY(element: HTMLElement): number {
+  const transform = window.getComputedStyle(element).transform;
+  if (!transform || transform === "none") {
+    return 0;
+  }
+  const matrix = new DOMMatrixReadOnly(transform);
+  return Number.isFinite(matrix.m42) ? matrix.m42 : 0;
+}
+
 function syncNearBottom(
   scrollContainer: HTMLElement | null,
   onNearBottomChange: (value: boolean) => void,
@@ -318,11 +331,15 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   const isActiveRef = useRef(isActive);
   const scrollContainerRef = useRef<HTMLElement | null>(null);
   const contentRef = useRef<HTMLElement | null>(null);
+  const timelineRef = useRef<HTMLElement | null>(null);
   const handleScrollContainerRef = useCallback((node: HTMLElement | null) => {
     scrollContainerRef.current = node;
   }, []);
   const handleContentRef = useCallback((node: HTMLElement | null) => {
     contentRef.current = node;
+  }, []);
+  const handleTimelineRef = useCallback((node: HTMLElement | null) => {
+    timelineRef.current = node;
   }, []);
   const [followOutput, setFollowOutputr] = useState(true);
   const followOutputRef = useRef(followOutput);
@@ -347,6 +364,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   const lastTouchClientYRef = useRef<number | null>(null);
   const pendingAutoScrollFrameRef = useRef<number | null>(null);
   const pendingAutoScrollTimeoutRef = useRef<number | null>(null);
+  const contentRiseAnimationRef = useRef<Animation | null>(null);
   const pendingVirtualRowMeasureFramesRef = useRef(new Map<Element, number>());
   const historyStartReadyRef = useRef(false);
   const [historyStartPaginationState, setHistoryStartPaginationState] = useState(
@@ -635,6 +653,46 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     }
   }, []);
 
+  const cancelContentRise = useCallback(() => {
+    contentRiseAnimationRef.current?.cancel();
+    contentRiseAnimationRef.current = null;
+  }, []);
+
+  const animateContentRise = useCallback((distance: number) => {
+    const timelineNode = timelineRef.current;
+    if (
+      !timelineNode ||
+      distance <= 0.5 ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      return;
+    }
+    const startingOffset = Math.max(0, readElementTranslateY(timelineNode) + distance);
+    const previous = contentRiseAnimationRef.current;
+    const animation = timelineNode.animate(
+      [{ transform: `translateY(${startingOffset}px)` }, { transform: "translateY(0px)" }],
+      {
+        duration: STREAM_RISE_DURATION_MS,
+        easing: "cubic-bezier(0.33, 1, 0.68, 1)",
+        fill: "both",
+      },
+    );
+    contentRiseAnimationRef.current = animation;
+    // Replace after the new fill:both effect is applied. Cancelling first would
+    // drop the in-flight offset for a frame, which reads as a 10–20px jump when
+    // the next footer or token lands during a rise.
+    previous?.cancel();
+    animation.addEventListener(
+      "finish",
+      () => {
+        if (contentRiseAnimationRef.current === animation) {
+          contentRiseAnimationRef.current = null;
+        }
+      },
+      { once: true },
+    );
+  }, []);
+
   const clearMouseScrollGesture = useCallback(() => {
     const gesture = mouseScrollGestureRef.current;
     const evidenceExpiryFrame = gesture?.kind === "autoscroll" ? gesture.evidenceExpiryFrame : null;
@@ -665,8 +723,15 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     pendingVirtualRowMeasureFramesRef.current.clear();
     clearMouseScrollGesture();
     clearUpwardInputEvidence();
+    cancelContentRise();
     lastTouchClientYRef.current = null;
-  }, [cancelPendingStickToBottom, clearMouseScrollGesture, clearUpwardInputEvidence, isActive]);
+  }, [
+    cancelContentRise,
+    cancelPendingStickToBottom,
+    clearMouseScrollGesture,
+    clearUpwardInputEvidence,
+    isActive,
+  ]);
 
   const scrollMessagesToBottom = useCallback(
     (behavior: ScrollBehaviorLike = "auto") => {
@@ -689,6 +754,22 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     [evaluateHistoryStart, onNearBottomChange],
   );
 
+  const stickFollowedOutputToBottom = useCallback(() => {
+    if (!isActiveRef.current || !followOutputRef.current) {
+      return;
+    }
+    const activeScrollContainer = scrollContainerRef.current;
+    if (activeScrollContainer && isScrollContainerOverscrolledPastBottom(activeScrollContainer)) {
+      return;
+    }
+    cancelPendingStickToBottom();
+    const previousScrollTop = activeScrollContainer?.scrollTop ?? 0;
+    scrollMessagesToBottom("auto");
+    if (activeScrollContainer) {
+      animateContentRise(activeScrollContainer.scrollTop - previousScrollTop);
+    }
+  }, [animateContentRise, cancelPendingStickToBottom, scrollMessagesToBottom]);
+
   const scheduleStickToBottom = useCallback(() => {
     if (!isActiveRef.current) {
       return;
@@ -702,12 +783,9 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     }
     pendingAutoScrollFrameRef.current = window.requestAnimationFrame(() => {
       pendingAutoScrollFrameRef.current = null;
-      if (!isActiveRef.current || !followOutputRef.current) {
-        return;
-      }
-      scrollMessagesToBottom("auto");
+      stickFollowedOutputToBottom();
     });
-  }, [scrollMessagesToBottom]);
+  }, [stickFollowedOutputToBottom]);
 
   const forceStickToBottom = useCallback(() => {
     cancelPendingStickToBottom();
@@ -770,6 +848,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
 
   const stopFollowingOutputFromUserIntent = useStableEvent(() => {
     cancelPendingStickToBottom();
+    cancelContentRise();
     if (followOutputRef.current) {
       setFollowOutput(false);
     }
@@ -863,6 +942,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   // Following output is a layout invariant: rows, footer, and bottom offset must
   // reach the browser in the same paint.
   useLayoutEffect(() => {
+    const previousLayout = lastActiveFollowOutputLayoutRef.current;
     const layout: ActiveFollowOutputLayout = {
       scrollContainer: scrollContainerRef.current,
       viewportWidth: window.innerWidth,
@@ -889,10 +969,21 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     }
     lastActiveFollowOutputLayoutRef.current = layout;
     if (!followOutputRef.current || resumedUnchangedLayout) return;
+    const scrollContainer = scrollContainerRef.current;
+    const previousScrollTop = scrollContainer?.scrollTop ?? 0;
     cancelPendingStickToBottom();
     scrollMessagesToBottom("auto");
+    if (
+      scrollContainer &&
+      previousLayout?.activationKey === activationKey &&
+      previousLayout.isActivationReady &&
+      isActivationReady
+    ) {
+      animateContentRise(scrollContainer.scrollTop - previousScrollTop);
+    }
   }, [
     activationKey,
+    animateContentRise,
     cancelPendingStickToBottom,
     isActive,
     isActivationReady,
@@ -969,11 +1060,15 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       if (!followOutputRef.current) {
         return;
       }
-      scheduleStickToBottom();
+      stickFollowedOutputToBottom();
     });
     observer.observe(scrollContainer);
     if (contentNode) {
       observer.observe(contentNode);
+    }
+    const timelineNode = timelineRef.current;
+    if (timelineNode) {
+      observer.observe(timelineNode);
     }
     return () => {
       observer.disconnect();
@@ -984,7 +1079,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     isActive,
     reportReadingPosition,
     scheduleHistoryStartPrependSettle,
-    scheduleStickToBottom,
+    stickFollowedOutputToBottom,
     updateScrollMetrics,
   ]);
 
@@ -1142,6 +1237,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       scrollToBottom: () => {
         setFollowOutput(true);
         cancelPendingStickToBottom();
+        cancelContentRise();
         forceStickToBottom();
       },
       prepareForViewportChange: () => {
@@ -1158,8 +1254,10 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
         viewportRef.current = null;
       }
       cancelPendingStickToBottom();
+      cancelContentRise();
     };
   }, [
+    cancelContentRise,
     cancelPendingStickToBottom,
     forceStickToBottom,
     scheduleStickToBottom,
@@ -1179,6 +1277,15 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       boxSizing: "border-box",
     };
   }, [isMobileBreakpoint]);
+  const timelineContainerStyle = useMemo(
+    (): CSSProperties => ({
+      display: "flex",
+      flexDirection: "column",
+      width: "100%",
+      willChange: "transform",
+    }),
+    [],
+  );
   const scrollContainerStyle = useMemo((): CSSProperties => {
     const overlayScrollbarEnabled = scrollEnabled && !isMobileBreakpoint;
     return {
@@ -1277,35 +1384,41 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
         id={`agent-chat-scroll-${shouldUseVirtualizer ? "web-dom-virtualized" : "web-dom-scroll"}`}
         style={scrollContainerStyle}
       >
-        <div ref={handleContentRef} style={contentContainerStyle}>
+        <div ref={handleContentRef} data-testid="agent-chat-content" style={contentContainerStyle}>
           {historyStartSlot}
-          {shouldUseVirtualizer ? (
-            <div style={virtualRowsContainerStyle}>
-              {virtualRows.map((virtualRow) => {
-                const item = segments.historyVirtualized[virtualRow.index];
-                if (!item) {
-                  return null;
-                }
-                return (
-                  <div
-                    key={virtualRow.key}
-                    data-index={virtualRow.index}
-                    data-history-row-id={item.id}
-                    data-message-id={getStreamItemMessageId(item)}
-                    ref={measureVirtualizedRowElement}
-                    style={renderVirtualRowStyle(virtualRow.start)}
-                  >
-                    {renderHistoryVirtualizedRow(
-                      item,
-                      virtualRow.index,
-                      segments.historyVirtualized,
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ) : null}
-          {mountedRows}
+          <div
+            ref={handleTimelineRef}
+            data-testid="agent-chat-timeline"
+            style={timelineContainerStyle}
+          >
+            {shouldUseVirtualizer ? (
+              <div style={virtualRowsContainerStyle}>
+                {virtualRows.map((virtualRow) => {
+                  const item = segments.historyVirtualized[virtualRow.index];
+                  if (!item) {
+                    return null;
+                  }
+                  return (
+                    <div
+                      key={virtualRow.key}
+                      data-index={virtualRow.index}
+                      data-history-row-id={item.id}
+                      data-message-id={getStreamItemMessageId(item)}
+                      ref={measureVirtualizedRowElement}
+                      style={renderVirtualRowStyle(virtualRow.start)}
+                    >
+                      {renderHistoryVirtualizedRow(
+                        item,
+                        virtualRow.index,
+                        segments.historyVirtualized,
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+            {mountedRows}
+          </div>
           {liveAuxiliary}
           {shouldRenderEmpty ? listEmptyComponent : null}
         </div>

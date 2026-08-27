@@ -57,6 +57,11 @@ import Animated, {
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Rect, Stop } from "react-native-svg";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { MarkdownRenderer, type MarkdownStyles } from "@/components/markdown/renderer";
+import {
+  ChatEntryMotion,
+  ChatGrowthClip,
+  chatLayoutTransition,
+} from "@/agent-stream/chat-entry-motion";
 import type { TaskActivity, TodoEntry, UserMessageImageAttachment } from "@/types/stream";
 import type { AgentAttachment } from "@getpaseo/protocol/messages";
 import type { ToolCallDetail } from "@getpaseo/protocol/agent-types";
@@ -504,7 +509,12 @@ export const UserMessage = memo(function UserMessage({
   );
 
   return (
-    <View style={containerStyle} testID="user-message" aria-busy={isPending}>
+    <Animated.View
+      style={containerStyle}
+      layout={chatLayoutTransition()}
+      testID="user-message"
+      aria-busy={isPending}
+    >
       <View
         style={userMessageStylesheet.content}
         onPointerEnter={handlePointerEnter}
@@ -573,7 +583,7 @@ export const UserMessage = memo(function UserMessage({
         ) : null}
       </View>
       <AttachmentLightbox source={lightboxSource} onClose={handleLightboxClose} />
-    </View>
+    </Animated.View>
   );
 });
 
@@ -1363,17 +1373,23 @@ function NativeShimmerPeakSvg({ gradientId }: { gradientId: string }) {
   );
 }
 
-interface AssistantMessageBlockContainerProps {
+interface AssistantMessageBlockProps {
   block: string;
   marginBottom: number;
+  clipGrowth: boolean;
+  animateEntry: boolean;
+  isNewestBlock: boolean;
   children: ReactNode;
 }
 
-function AssistantMessageBlockContainer({
+function AssistantMessageBlock({
   block,
   marginBottom,
+  clipGrowth,
+  animateEntry,
+  isNewestBlock,
   children,
-}: AssistantMessageBlockContainerProps) {
+}: AssistantMessageBlockProps) {
   const style = useMemo(() => (marginBottom > 0 ? { marginBottom } : undefined), [marginBottom]);
   const handleLayout = useCallback(
     (event: LayoutChangeEvent) => {
@@ -1382,10 +1398,29 @@ function AssistantMessageBlockContainer({
     },
     [block],
   );
+  // While streaming, ChatGrowthClip owns this block's height; a layout
+  // transition would fight it. Once streamed, spacing shifts ease on the
+  // shared curve so a settling neighbor tracks the entry motion above it.
+  const container = (
+    <Animated.View style={style} layout={clipGrowth ? undefined : chatLayoutTransition()}>
+      <ChatGrowthClip
+        enabled={clipGrowth}
+        onLayout={isWeb ? handleLayout : undefined}
+        testID={clipGrowth ? "assistant-block-growth-clip" : undefined}
+      >
+        {children}
+      </ChatGrowthClip>
+    </Animated.View>
+  );
+  if (!animateEntry) {
+    return container;
+  }
+  // Only the newest block fades in; older blocks snap to rest so a burst reveals
+  // the backlog immediately instead of fading several paragraphs at once.
   return (
-    <View style={style} onLayout={isWeb ? handleLayout : undefined}>
-      {children}
-    </View>
+    <ChatEntryMotion settle={!isNewestBlock} testID="assistant-block-entry-motion">
+      {container}
+    </ChatEntryMotion>
   );
 }
 
@@ -1963,6 +1998,7 @@ export const AssistantMessage = memo(function AssistantMessage({
     () => blocks.map((block, index) => ({ key: `block:${index}`, block })),
     [blocks],
   );
+  const animateBlockEntry = useRef(phase === "streaming").current;
 
   const assistantContainerStyle = useMemo(
     () => [
@@ -1989,10 +2025,13 @@ export const AssistantMessage = memo(function AssistantMessage({
   return (
     <View testID="assistant-message" dataSet={revealDataSet} style={assistantContainerStyle}>
       {keyedBlocks.map(({ key, block }, index) => (
-        <AssistantMessageBlockContainer
+        <AssistantMessageBlock
           key={key}
           block={block}
           marginBottom={index < keyedBlocks.length - 1 ? 12 : 0}
+          clipGrowth={phase === "streaming"}
+          animateEntry={animateBlockEntry}
+          isNewestBlock={index === keyedBlocks.length - 1}
         >
           <MemoizedMarkdownBlock
             text={block}
@@ -2004,7 +2043,7 @@ export const AssistantMessage = memo(function AssistantMessage({
             }
             onLinkPress={handleMarkdownLinkPress}
           />
-        </AssistantMessageBlockContainer>
+        </AssistantMessageBlock>
       ))}
       {fullMessageByteLength !== null ? (
         <Text
@@ -2948,8 +2987,9 @@ export const ExpandableBadge = memo(function ExpandableBadge({
     : {};
 
   return (
-    <View
+    <Animated.View
       style={containerStyle}
+      layout={chatLayoutTransition()}
       testID={testID}
       onPointerEnter={isWeb ? handleHoverIn : undefined}
       onPointerLeave={isWeb ? handleHoverOut : undefined}
@@ -2999,7 +3039,7 @@ export const ExpandableBadge = memo(function ExpandableBadge({
           {detailContent}
         </Pressable>
       ) : null}
-    </View>
+    </Animated.View>
   );
 }, areExpandableBadgePropsEqual);
 
