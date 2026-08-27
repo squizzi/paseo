@@ -29,7 +29,7 @@ import type { EditingTextInputHandle } from "@/components/ui/text-input";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { BottomSheetScrollView, BottomSheetBackgroundProps } from "@gorhom/bottom-sheet";
-import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
+import Animated from "react-native-reanimated";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { Check, File, Folder, Search } from "lucide-react-native";
 import {
@@ -59,6 +59,8 @@ import {
   type SheetHeader,
 } from "@/components/adaptive-modal-sheet";
 import { FloatingSurface } from "@/components/ui/floating";
+import { menuOverlayMotion } from "@/components/ui/overlay-motion";
+import type { MotionOverlaySide } from "@/styles/motion";
 import { useDismissKeyboardOnOpen } from "@/components/ui/keyboard-dismiss";
 import {
   getOverlayRoot,
@@ -74,6 +76,35 @@ const IS_WEB = isWeb;
 
 export type ComboboxOption = ComboboxOptionModel;
 export type ComboboxDesktopPlacement = "top-start" | "bottom-start";
+
+/** The overlay engine's anchor-aware motion only needs the primary side. */
+function comboboxDesktopMotionSide(placement: ComboboxDesktopPlacement): MotionOverlaySide {
+  return placement === "top-start" ? "top" : "bottom";
+}
+
+/**
+ * Remounts the desktop surface once position resolves so `entering` (which
+ * only fires on mount) plays exactly then, already at the right spot, instead
+ * of firing at mount while still at an unresolved position. Comboboxes that
+ * don't use the fade keep one stable key throughout -- unaffected.
+ */
+function desktopFloatingSurfaceKey(input: {
+  shouldUseDesktopFade: boolean;
+  hasResolvedDesktopPosition: boolean;
+}): string {
+  if (!input.shouldUseDesktopFade) {
+    return "static";
+  }
+  return input.hasResolvedDesktopPosition ? "resolved" : "measuring";
+}
+
+/** Only the resolved instance should carry the motion -- see the comment at its usage. */
+function shouldPlayDesktopFadeMotion(input: {
+  shouldUseDesktopFade: boolean;
+  hasResolvedDesktopPosition: boolean;
+}): boolean {
+  return input.shouldUseDesktopFade && input.hasResolvedDesktopPosition;
+}
 
 export interface ComboboxProps {
   options: ComboboxOption[];
@@ -114,9 +145,10 @@ export interface ComboboxProps {
   onOpenChange?: (open: boolean) => void;
   desktopPlacement?: ComboboxDesktopPlacement;
   /**
-   * Prevents an initial frame at 0,0 by hiding desktop content until floating
-   * coordinates resolve. This intentionally disables fade enter/exit animation
-   * for that combobox instance to avoid animation overriding hidden opacity.
+   * Desktop content is always hidden until floating coordinates resolve, to
+   * prevent an initial frame at 0,0. This flag chooses what happens once
+   * resolved: `true` (default) snaps straight to visible; `false` opts into
+   * the same anchor-aware scale+fade entrance the menu engine uses.
    */
   desktopPreventInitialFlash?: boolean;
   /** Minimum width for the desktop popover (overrides trigger-based width). */
@@ -489,7 +521,10 @@ function computeDesktopPosition(input: DesktopPositionInput): DesktopPositionRes
   );
   const hasResolvedDesktopPosition =
     referenceWidth !== null && referenceWidth > 0 && resolvedPositionReady;
-  const shouldHideDesktopContent = desktopPreventInitialFlash && !hasResolvedDesktopPosition;
+  // Always hide until resolved, fade or not: the fade path remounts once
+  // resolved (see DesktopComboboxBody's FloatingSurface key) so `entering`
+  // only ever plays already in the right spot.
+  const shouldHideDesktopContent = !hasResolvedDesktopPosition;
   const shouldUseDesktopFade = !desktopPreventInitialFlash;
 
   let desktopPositionStyle: DesktopPositionResult["desktopPositionStyle"];
@@ -1034,6 +1069,8 @@ interface DesktopBodyProps {
   handleDesktopKey: (key: DesktopKey, event?: KeyboardEvent) => boolean;
   refs: ReturnType<typeof useFloating>["refs"];
   shouldUseDesktopFade: boolean;
+  hasResolvedDesktopPosition: boolean;
+  desktopMotionSide: MotionOverlaySide;
   desktopFrameStyle: StyleProp<ViewStyle>;
   handleDesktopContentLayout: (event: LayoutChangeEvent) => void;
   header: SheetHeader | undefined;
@@ -1191,9 +1228,25 @@ function DesktopComboboxBody(props: DesktopBodyProps): ReactElement {
       >
         <Pressable style={styles.desktopBackdrop} onPress={props.handleClose} />
         <FloatingSurface
+          key={desktopFloatingSurfaceKey(props)}
           testID="combobox-desktop-container"
-          entering={props.shouldUseDesktopFade ? FadeIn.duration(100) : undefined}
-          exiting={props.shouldUseDesktopFade ? FadeOut.duration(100) : undefined}
+          // Only the resolved instance plays the motion. The measuring
+          // instance is invisible (opacity 0 via frameStyle) but would still
+          // carry `exiting` here if this were unconditional on
+          // shouldUseDesktopFade -- Reanimated's exit animation ignores that
+          // static opacity and starts from its own keyframe's opacity: 1, so
+          // removing it at the key swap flashed it to fully visible before
+          // fading out, at the same time the resolved instance faded in.
+          entering={
+            shouldPlayDesktopFadeMotion(props)
+              ? menuOverlayMotion.entering[props.desktopMotionSide]
+              : undefined
+          }
+          exiting={
+            shouldPlayDesktopFadeMotion(props)
+              ? menuOverlayMotion.exiting[props.desktopMotionSide]
+              : undefined
+          }
           style={styles.desktopContainer}
           frameStyle={props.desktopFrameStyle}
           ref={setFloatingRef}
@@ -1604,6 +1657,8 @@ export function Combobox({
       handleDesktopKey={handleDesktopKey}
       refs={refs}
       shouldUseDesktopFade={shouldUseDesktopFade}
+      hasResolvedDesktopPosition={hasResolvedDesktopPosition}
+      desktopMotionSide={comboboxDesktopMotionSide(desktopPlacement)}
       desktopFrameStyle={desktopFrameStyle}
       handleDesktopContentLayout={handleDesktopContentLayout}
       header={header}

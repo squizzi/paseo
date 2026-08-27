@@ -12,9 +12,14 @@ import {
   visibleRevealedText,
 } from "@/agent-stream/text-reveal";
 import type { MarkdownPhase } from "@/components/markdown/fence/types";
+import { isWeb } from "@/constants/platform";
 
 /**
  * Binds the paced reveal in @/agent-stream/text-reveal to a frame clock.
+ *
+ * Web paints each coalesced arrival as a chunk fade; per-frame character
+ * growth remounts markdown and kills that fade. Native still paces characters
+ * because UITextView drops the nested fade views.
  *
  * All of the policy — what is revealed when, and where it is safe to cut — lives
  * in that module and is tested there. This hook only owns the requestAnimationFrame
@@ -22,7 +27,7 @@ import type { MarkdownPhase } from "@/components/markdown/fence/types";
  * `packages/app/e2e/browser/agent-stream-smoothness.spec.ts`.
  */
 export function useRevealedText(text: string, phase: MarkdownPhase): string {
-  const pacingSupported = isTextRevealPacingSupported();
+  const pacingSupported = isTextRevealPacingSupported() && !isWeb;
   const stateRef = useRef<TextRevealState>(beginTextReveal(text));
   const [, forceRender] = useState(0);
   const frameRef = useRef<number | null>(null);

@@ -2230,6 +2230,11 @@ export const es: TranslationResources = {
       detailLevel: {
         title: "Nivel de detalle",
       },
+      animations: {
+        title: "Animaciones",
+        description:
+          "Desvanecer, deslizar y suavizar los elementos al aparecer, transmitirse y reordenarse",
+      },
       chatOutline: {
         title: "Esquema del chat",
         description: "Muestra un esquema para saltar entre instrucciones",

@@ -1,22 +1,247 @@
-import { type ReactNode, useCallback, useMemo, useState } from "react";
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useState,
+} from "react";
 import { Image, Pressable, Text, View } from "react-native";
+import { useTranslation } from "react-i18next";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { X } from "lucide-react-native";
-import { isNative } from "@/constants/platform";
+import { ChevronRight, X } from "lucide-react-native";
+import { isNative, isWeb } from "@/constants/platform";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import type { AttachmentMetadata } from "@/attachments/types";
 import { useAttachmentPreviewUrl } from "@/attachments/use-attachment-preview-url";
+import { ExpandableBadgeCollapseClip } from "@/components/badge-collapse-clip";
+import { ExpandWidthClip } from "@/components/expand-width-clip";
+import { ToolCallDetailsContent } from "@/components/tool-call-details";
+import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
+import { MOTION_ARRIVE_CSS, MOTION_ARRIVE_DURATION_MS } from "@/styles/motion-tokens";
 import type { Theme } from "@/styles/theme";
 
 // Every attachment pill body — image thumbnail or labelled — renders at this
 // height so mixed attachment trays line up.
 const ATTACHMENT_CONTENT_HEIGHT = 48;
+const EXPANDED_ACCESSIBILITY_STATE = { expanded: true } as const;
+const COLLAPSED_ACCESSIBILITY_STATE = { expanded: false } as const;
+
+function expandedAccessibilityState(isExpanded: boolean) {
+  return isExpanded ? EXPANDED_ACCESSIBILITY_STATE : COLLAPSED_ACCESSIBILITY_STATE;
+}
+
+interface AttachmentChromeContextValue {
+  hasLeadingToggle: boolean;
+}
+
+const AttachmentChromeContext = createContext<AttachmentChromeContextValue>({
+  hasLeadingToggle: false,
+});
+
+interface AttachmentExpansion {
+  prompt: string;
+  hasDetails: boolean;
+  isExpanded: boolean;
+  toggle: () => void;
+  expandAccessibilityLabel: string;
+  collapseAccessibilityLabel: string;
+}
+
+function useAttachmentExpansion(details: string | null | undefined): AttachmentExpansion {
+  const { t } = useTranslation();
+  const [isExpanded, setIsExpanded] = useState(false);
+  const prompt = details?.trim() ?? "";
+  const hasDetails = prompt.length > 0;
+  const toggle = useCallback(() => {
+    if (!hasDetails) {
+      return;
+    }
+    setIsExpanded((current) => !current);
+  }, [hasDetails]);
+  return {
+    prompt,
+    hasDetails,
+    isExpanded: hasDetails && isExpanded,
+    toggle,
+    expandAccessibilityLabel: t("message.attachments.showPrompt"),
+    collapseAccessibilityLabel: t("message.attachments.hidePrompt"),
+  };
+}
+
+interface AttachmentExpandToggleProps {
+  isExpanded: boolean;
+  expandAccessibilityLabel: string;
+  collapseAccessibilityLabel: string;
+  onToggle: () => void;
+}
+
+function AttachmentExpandToggle({
+  isExpanded,
+  expandAccessibilityLabel,
+  collapseAccessibilityLabel,
+  onToggle,
+}: AttachmentExpandToggleProps) {
+  const accessibilityLabel = isExpanded ? collapseAccessibilityLabel : expandAccessibilityLabel;
+  const chevronStyle = useMemo(
+    () => [
+      styles.chevron,
+      inlineUnistylesStyle({
+        transform: isExpanded ? [{ rotate: "90deg" }] : [],
+      }),
+    ],
+    [isExpanded],
+  );
+  return (
+    <Pressable
+      testID="attachment-expand-toggle"
+      onPress={onToggle}
+      accessibilityRole="button"
+      accessibilityState={expandedAccessibilityState(isExpanded)}
+      accessibilityLabel={accessibilityLabel}
+      style={styles.chevronButton}
+      hitSlop={8}
+    >
+      <View style={chevronStyle}>
+        <ThemedChevronRight size={12} uniProps={iconForegroundMutedMapping} />
+      </View>
+    </Pressable>
+  );
+}
+
+function AttachmentPromptDetails({ text }: { text: string }) {
+  const isCompact = useIsCompactFormFactor();
+  const maxHeight = isCompact ? 180 : 260;
+  const detail = useMemo(() => ({ type: "plain_text" as const, text }), [text]);
+  return (
+    <View testID="attachment-prompt-details">
+      <ToolCallDetailsContent detail={detail} maxHeight={maxHeight} />
+    </View>
+  );
+}
+
+interface AttachmentChromeProps {
+  onBodyPress?: () => void;
+  bodyAccessibilityLabel?: string;
+  details?: string | null;
+  expansion?: AttachmentExpansion;
+  disabled?: boolean;
+  testID?: string;
+  onStretchChange?: (stretch: boolean) => void;
+  children: ReactNode;
+}
+
+function AttachmentChrome({
+  onBodyPress,
+  bodyAccessibilityLabel,
+  details,
+  expansion: providedExpansion,
+  disabled = false,
+  testID,
+  onStretchChange,
+  children,
+}: AttachmentChromeProps) {
+  const internalExpansion = useAttachmentExpansion(details);
+  const expansion = providedExpansion ?? internalExpansion;
+  const [isWidthClosing, setIsWidthClosing] = useState(false);
+  const [isHeightClosing, setIsHeightClosing] = useState(false);
+  const handleBodyPress = onBodyPress ?? (expansion.hasDetails ? expansion.toggle : undefined);
+  const isBodyExpandToggle = !onBodyPress && expansion.hasDetails;
+  const shellOpen = expansion.isExpanded || isWidthClosing || isHeightClosing;
+  const wrapperStyle = useMemo(
+    () => [styles.column, shellOpen && styles.columnExpanded],
+    [shellOpen],
+  );
+  const frameStyle = useMemo(() => [styles.frame, shellOpen && styles.frameExpanded], [shellOpen]);
+  const bodyStyle = useMemo(() => [styles.body, shellOpen && styles.bodyExpanded], [shellOpen]);
+  const expandLabel = expansion.isExpanded
+    ? expansion.collapseAccessibilityLabel
+    : expansion.expandAccessibilityLabel;
+  const bodyLabel = isBodyExpandToggle ? expandLabel : bodyAccessibilityLabel;
+  const bodyAccessibilityState = isBodyExpandToggle
+    ? expandedAccessibilityState(expansion.isExpanded)
+    : undefined;
+  const chromeContext = useMemo(
+    () => ({ hasLeadingToggle: expansion.hasDetails }),
+    [expansion.hasDetails],
+  );
+  const renderPromptDetails = useCallback(
+    () => <AttachmentPromptDetails text={expansion.prompt} />,
+    [expansion.prompt],
+  );
+
+  useLayoutEffect(() => {
+    onStretchChange?.(shellOpen);
+  }, [onStretchChange, shellOpen]);
+
+  const body = handleBodyPress ? (
+    <Pressable
+      testID={testID}
+      onPress={handleBodyPress}
+      disabled={disabled && !isBodyExpandToggle}
+      accessibilityRole="button"
+      accessibilityLabel={bodyLabel}
+      accessibilityState={bodyAccessibilityState}
+      style={bodyStyle}
+    >
+      {children}
+    </Pressable>
+  ) : (
+    <View testID={testID} style={bodyStyle}>
+      {children}
+    </View>
+  );
+
+  const inner = (
+    <>
+      <View style={frameStyle}>
+        {expansion.hasDetails ? (
+          <AttachmentExpandToggle
+            isExpanded={expansion.isExpanded}
+            expandAccessibilityLabel={expansion.expandAccessibilityLabel}
+            collapseAccessibilityLabel={expansion.collapseAccessibilityLabel}
+            onToggle={expansion.toggle}
+          />
+        ) : null}
+        <AttachmentChromeContext.Provider value={chromeContext}>
+          {body}
+        </AttachmentChromeContext.Provider>
+      </View>
+      {expansion.hasDetails ? (
+        <ExpandableBadgeCollapseClip
+          expanded={expansion.isExpanded}
+          renderDetails={renderPromptDetails}
+          detailWrapperStyle={styles.detailWrapper}
+          onClosingChange={setIsHeightClosing}
+          testID="attachment-prompt-collapse-clip"
+        />
+      ) : null}
+    </>
+  );
+
+  if (!expansion.hasDetails) {
+    return <View style={wrapperStyle}>{inner}</View>;
+  }
+
+  return (
+    <ExpandWidthClip
+      expanded={expansion.isExpanded}
+      onClosingChange={setIsWidthClosing}
+      style={wrapperStyle}
+      testID="attachment-expand-width-clip"
+    >
+      {inner}
+    </ExpandWidthClip>
+  );
+}
 
 interface AttachmentPillProps {
-  onOpen: () => void;
+  onOpen?: () => void;
   onRemove: () => void;
-  openAccessibilityLabel: string;
+  openAccessibilityLabel?: string;
   removeAccessibilityLabel: string;
+  details?: string | null;
   disabled?: boolean;
   testID?: string;
   children: ReactNode;
@@ -27,42 +252,46 @@ export function AttachmentPill({
   onRemove,
   openAccessibilityLabel,
   removeAccessibilityLabel,
+  details,
   disabled = false,
   testID,
   children,
 }: AttachmentPillProps) {
   const isCompact = useIsCompactFormFactor();
-  const [isBodyHovered, setIsBodyHovered] = useState(false);
-  const [isCloseHovered, setIsCloseHovered] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const expansion = useAttachmentExpansion(details);
+  const [stretchShell, setStretchShell] = useState(false);
   const alwaysShow = isNative || isCompact;
-  const showRemove = alwaysShow || isBodyHovered || isCloseHovered;
+  const showRemove = alwaysShow || isHovered;
   const closeButtonStyle = useMemo(
     () => [styles.closeButton, !showRemove && styles.closeButtonHidden],
     [showRemove],
   );
-  const handleBodyHoverIn = useCallback(() => setIsBodyHovered(true), []);
-  const handleBodyHoverOut = useCallback(() => setIsBodyHovered(false), []);
-  const handleCloseHoverIn = useCallback(() => setIsCloseHovered(true), []);
-  const handleCloseHoverOut = useCallback(() => setIsCloseHovered(false), []);
+  const handleHoverIn = useCallback(() => setIsHovered(true), []);
+  const handleHoverOut = useCallback(() => setIsHovered(false), []);
+  const wrapperStyle = useMemo(
+    () => [styles.wrapper, stretchShell && styles.wrapperExpanded],
+    [stretchShell],
+  );
   return (
-    <View style={styles.wrapper}>
-      <Pressable
-        testID={testID}
-        onPress={onOpen}
+    <View
+      style={wrapperStyle}
+      onPointerEnter={isWeb ? handleHoverIn : undefined}
+      onPointerLeave={isWeb ? handleHoverOut : undefined}
+    >
+      <AttachmentChrome
+        onBodyPress={onOpen}
+        bodyAccessibilityLabel={openAccessibilityLabel}
+        expansion={expansion}
+        onStretchChange={setStretchShell}
         disabled={disabled}
-        onHoverIn={handleBodyHoverIn}
-        onHoverOut={handleBodyHoverOut}
-        accessibilityRole="button"
-        accessibilityLabel={openAccessibilityLabel}
-        style={styles.frame}
+        testID={testID}
       >
         {children}
-      </Pressable>
+      </AttachmentChrome>
       <Pressable
         onPress={onRemove}
         disabled={disabled}
-        onHoverIn={handleCloseHoverIn}
-        onHoverOut={handleCloseHoverOut}
         hitSlop={8}
         accessibilityRole="button"
         accessibilityLabel={removeAccessibilityLabel}
@@ -77,7 +306,9 @@ export function AttachmentPill({
 interface AttachmentFrameProps {
   onPress?: () => void;
   accessibilityLabel?: string;
+  details?: string | null;
   testID?: string;
+  onStretchChange?: (stretch: boolean) => void;
   children: ReactNode;
 }
 
@@ -85,26 +316,21 @@ interface AttachmentFrameProps {
 export function AttachmentFrame({
   onPress,
   accessibilityLabel,
+  details,
   testID,
+  onStretchChange,
   children,
 }: AttachmentFrameProps) {
-  if (!onPress) {
-    return (
-      <View testID={testID} style={styles.frame}>
-        {children}
-      </View>
-    );
-  }
   return (
-    <Pressable
+    <AttachmentChrome
+      onBodyPress={onPress}
+      bodyAccessibilityLabel={accessibilityLabel}
+      details={details}
       testID={testID}
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
-      style={styles.frame}
+      onStretchChange={onStretchChange}
     >
       {children}
-    </Pressable>
+    </AttachmentChrome>
   );
 }
 
@@ -116,8 +342,13 @@ interface AttachmentLabelProps {
 
 /** Two-line labelled pill body: attachment name over its type. */
 export function AttachmentLabel({ icon, title, subtitle }: AttachmentLabelProps) {
+  const { hasLeadingToggle } = useContext(AttachmentChromeContext);
+  const containerStyle = useMemo(
+    () => [styles.labelBody, hasLeadingToggle && styles.labelBodyWithLeadingToggle],
+    [hasLeadingToggle],
+  );
   return (
-    <View style={styles.labelBody}>
+    <View style={containerStyle}>
       {icon ? <View style={styles.labelIcon}>{icon}</View> : null}
       <View style={styles.labelTextColumn}>
         <Text style={styles.labelTitle} numberOfLines={1}>
@@ -142,16 +373,85 @@ export function AttachmentThumbnail({ metadata }: { metadata: AttachmentMetadata
 }
 
 const ThemedX = withUnistyles(X);
+const ThemedChevronRight = withUnistyles(ChevronRight);
 const iconForegroundMutedMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 
 const styles = StyleSheet.create((theme) => ({
   wrapper: {
     position: "relative",
+    maxWidth: "100%",
+    minWidth: 0,
+  },
+  wrapperExpanded: {
+    alignSelf: "stretch",
+    width: "100%",
+  },
+  column: {
+    alignSelf: "flex-start",
+    maxWidth: "100%",
+    minWidth: 0,
+  },
+  columnExpanded: {
+    alignSelf: "stretch",
+    width: "100%",
+    maxWidth: "100%",
+    minWidth: 0,
   },
   frame: {
+    flexDirection: "row",
+    alignItems: "center",
     borderRadius: theme.borderRadius.md,
     borderWidth: theme.borderWidth[1],
     borderColor: theme.colors.borderAccent,
+    backgroundColor: theme.colors.surface1,
+    overflow: "hidden",
+    minWidth: 0,
+  },
+  frameExpanded: {
+    alignSelf: "stretch",
+    width: "100%",
+    maxWidth: "100%",
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface1,
+  },
+  body: {
+    minWidth: 0,
+  },
+  bodyExpanded: {
+    flex: 1,
+    minWidth: 0,
+  },
+  chevronButton: {
+    height: ATTACHMENT_CONTENT_HEIGHT,
+    paddingLeft: theme.spacing[2],
+    paddingRight: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+    backgroundColor: "transparent",
+  },
+  chevron: {
+    flexShrink: 0,
+    ...(isWeb
+      ? {
+          transitionProperty: "transform",
+          transitionDuration: `${MOTION_ARRIVE_DURATION_MS}ms`,
+          transitionTimingFunction: MOTION_ARRIVE_CSS,
+        }
+      : null),
+  },
+  detailWrapper: {
+    width: "100%",
+    maxWidth: "100%",
+    minWidth: 0,
+    borderBottomLeftRadius: theme.borderRadius.md,
+    borderBottomRightRadius: theme.borderRadius.md,
+    borderWidth: theme.borderWidth[1],
+    borderTopWidth: 0,
+    borderColor: theme.colors.border,
+    padding: 0,
     overflow: "hidden",
   },
   labelBody: {
@@ -161,7 +461,10 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     gap: theme.spacing[2],
     paddingHorizontal: theme.spacing[3],
-    backgroundColor: theme.colors.surface1,
+    backgroundColor: "transparent",
+  },
+  labelBodyWithLeadingToggle: {
+    paddingLeft: theme.spacing[2],
   },
   labelIcon: {
     width: 18,

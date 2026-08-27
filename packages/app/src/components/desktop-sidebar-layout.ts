@@ -3,6 +3,17 @@ import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH } from "@/stores/panel-store";
 
 const MIN_DESKTOP_CENTER_WIDTH = 400;
 
+export function resolveDesktopSidebarChromePresence(input: {
+  isCompactLayout: boolean;
+  visible: boolean;
+  occupiesLayout: boolean;
+}): boolean {
+  if (input.isCompactLayout) {
+    return input.visible;
+  }
+  return input.visible || input.occupiesLayout;
+}
+
 export function resolveDesktopSidebarVisibility(input: {
   chromeEnabled: boolean;
   isCompactLayout: boolean;

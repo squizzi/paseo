@@ -8,12 +8,7 @@ import { usePaneContext } from "@/panels/pane-context";
 import { useSettings } from "@/hooks/use-settings";
 import { PluginComposerPills } from "@/plugins";
 import { useSessionStore } from "@/stores/session-store";
-import {
-  type ArchiveFinishedStatus,
-  useArchiveSubagent,
-  useDetachSubagent,
-  type SubagentRow,
-} from "@/subagents";
+import { type ArchiveFinishedStatus, useDetachSubagent, type SubagentRow } from "@/subagents";
 import { SubagentsTrack } from "@/subagents/track";
 import type { TodoEntry } from "@/types/stream";
 import { navigateToAgent } from "@/utils/navigate-to-agent";
@@ -34,6 +29,10 @@ export const AgentTracks = memo(function AgentTracks({
   agentId,
   cwd,
   subagentRows,
+  subagentDisplayRows,
+  exitingSubagentIds,
+  onArchiveSubagent,
+  onRowExited,
   tasks,
   archiveFinishedStatus,
   onArchiveFinished,
@@ -44,6 +43,10 @@ export const AgentTracks = memo(function AgentTracks({
   agentId: string;
   cwd: string;
   subagentRows: SubagentRow[];
+  subagentDisplayRows: SubagentRow[];
+  exitingSubagentIds: ReadonlySet<string>;
+  onArchiveSubagent: (id: string) => void;
+  onRowExited: (id: string) => void;
   tasks: TodoEntry[] | undefined;
   archiveFinishedStatus: ArchiveFinishedStatus;
   onArchiveFinished: () => void;
@@ -58,7 +61,6 @@ export const AgentTracks = memo(function AgentTracks({
   const canDetachSubagents = useSessionStore(
     (state) => state.sessions[serverId]?.serverInfo?.features?.agentDetach === true,
   );
-  const archiveSubagent = useArchiveSubagent({ serverId });
   const detachSubagent = useDetachSubagent({ serverId });
   const handleOpenSubagent = useCallback(
     (subagentId: string) => {
@@ -119,6 +121,7 @@ export const AgentTracks = memo(function AgentTracks({
       tasks,
       archiveFinishedStatus,
       hasPluginComposerPills,
+      hasExitingSubagentRows: exitingSubagentIds.size > 0,
     })
   ) {
     return null;
@@ -130,10 +133,13 @@ export const AgentTracks = memo(function AgentTracks({
       <SubagentsTrack
         serverId={serverId}
         rows={subagentRows}
+        displayRows={subagentDisplayRows}
+        exitingIds={exitingSubagentIds}
         onOpenSubagent={handleOpenSubagent}
         onOpenProviderSubagent={handleOpenProviderSubagent}
-        onArchiveSubagent={archiveSubagent}
+        onArchiveSubagent={onArchiveSubagent}
         onArchiveFinished={onArchiveFinished}
+        onRowExited={onRowExited}
         archiveFinishedStatus={archiveFinishedStatus}
         onDetachSubagent={canDetachSubagents ? detachSubagent : undefined}
       />
@@ -157,16 +163,20 @@ export function hasAgentTracks({
   tasks,
   archiveFinishedStatus,
   hasPluginComposerPills = false,
+  hasExitingSubagentRows = false,
 }: {
   subagentRows: readonly SubagentRow[];
   tasks: readonly TodoEntry[] | undefined;
   archiveFinishedStatus: ArchiveFinishedStatus;
   hasPluginComposerPills?: boolean;
+  /** A row can still be mid collapse after it has left `subagentRows`; keep the track mounted for it. */
+  hasExitingSubagentRows?: boolean;
 }): boolean {
   return (
     subagentRows.length > 0 ||
     Boolean(tasks?.length) ||
     archiveFinishedStatus.kind !== "idle" ||
-    hasPluginComposerPills
+    hasPluginComposerPills ||
+    hasExitingSubagentRows
   );
 }

@@ -58,6 +58,16 @@ interface HistoryStartPrependAnchor {
 type ScrollBehaviorLike = "auto" | "smooth";
 
 const WEB_BOTTOM_SETTLE_TIMEOUT_MS = 200;
+// A continuous per-frame decay toward zero, not a fixed-duration tween: a
+// retarget mid-rise (common while streaming) just nudges the running offset,
+// so the existing decay continues at whatever velocity it was already at
+// instead of restarting from the curve's fast initial slope. That restart
+// was position-continuous but velocity-discontinuous, which read as small
+// stutters when updates landed faster than the tween's own duration.
+// Time-constant chosen so ~3x it (the point a decay is ~95% settled) roughly
+// matches the previous fixed rise duration's feel.
+const CONTENT_RISE_TIME_CONSTANT_MS = 110;
+const CONTENT_RISE_SETTLE_EPSILON_PX = 0.5;
 const USER_SCROLL_DELTA_EPSILON = 1;
 const BOTTOM_OVERSCROLL_TOLERANCE_PX = 2;
 const AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 64;
@@ -97,6 +107,16 @@ const streamRowStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   width: "100%",
+};
+
+const timelineClipStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  width: "100%",
+  // Clip the rise to the untransformed layout box. A downward translateY
+  // would otherwise paint new tokens over the live footer; padding the
+  // layout instead would resize the content and re-enter stick/rise.
+  overflow: "hidden",
 };
 
 function isScrollContainerNearBottom(
@@ -319,11 +339,19 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   const isActiveRef = useRef(isActive);
   const scrollContainerRef = useRef<HTMLElement | null>(null);
   const contentRef = useRef<HTMLElement | null>(null);
+  const timelineRef = useRef<HTMLElement | null>(null);
+  const liveAuxiliaryRef = useRef<HTMLElement | null>(null);
   const handleScrollContainerRef = useCallback((node: HTMLElement | null) => {
     scrollContainerRef.current = node;
   }, []);
   const handleContentRef = useCallback((node: HTMLElement | null) => {
     contentRef.current = node;
+  }, []);
+  const handleTimelineRef = useCallback((node: HTMLElement | null) => {
+    timelineRef.current = node;
+  }, []);
+  const handleLiveAuxiliaryRef = useCallback((node: HTMLElement | null) => {
+    liveAuxiliaryRef.current = node;
   }, []);
   const [followOutput, setFollowOutputr] = useState(true);
   const followOutputRef = useRef(followOutput);
@@ -348,6 +376,13 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   const lastTouchClientYRef = useRef<number | null>(null);
   const pendingAutoScrollFrameRef = useRef<number | null>(null);
   const pendingAutoScrollTimeoutRef = useRef<number | null>(null);
+  const contentRiseOffsetRef = useRef(0);
+  const contentRiseFrameRef = useRef<number | null>(null);
+  const contentRiseLastFrameTimeRef = useRef<number | null>(null);
+  const footerRiseOffsetRef = useRef(0);
+  const footerRiseFrameRef = useRef<number | null>(null);
+  const footerRiseLastFrameTimeRef = useRef<number | null>(null);
+  const footerLastTopRef = useRef<number | null>(null);
   const pendingVirtualRowMeasureFramesRef = useRef(new Map<Element, number>());
   const historyStartReadyRef = useRef(false);
   const [historyStartPaginationState, setHistoryStartPaginationState] = useState(
@@ -636,6 +671,157 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     }
   }, []);
 
+  const applyContentRiseOffset = useCallback((offset: number) => {
+    const timelineNode = timelineRef.current;
+    if (!timelineNode) {
+      return;
+    }
+    timelineNode.style.transform = offset === 0 ? "" : `translateY(${offset}px)`;
+  }, []);
+
+  const stepContentRise = useCallback(
+    (timestamp: number) => {
+      const lastFrameTime = contentRiseLastFrameTimeRef.current;
+      contentRiseLastFrameTimeRef.current = timestamp;
+      // No decay on the frame that starts the loop (or resumes after a gap) --
+      // there is no elapsed interval yet to decay over.
+      const deltaMs = lastFrameTime === null ? 0 : timestamp - lastFrameTime;
+      const decay = 1 - Math.exp(-deltaMs / CONTENT_RISE_TIME_CONSTANT_MS);
+      const next = contentRiseOffsetRef.current * (1 - decay);
+      if (Math.abs(next) < CONTENT_RISE_SETTLE_EPSILON_PX) {
+        contentRiseOffsetRef.current = 0;
+        contentRiseLastFrameTimeRef.current = null;
+        contentRiseFrameRef.current = null;
+        applyContentRiseOffset(0);
+        return;
+      }
+      contentRiseOffsetRef.current = next;
+      applyContentRiseOffset(next);
+      contentRiseFrameRef.current = window.requestAnimationFrame(stepContentRise);
+    },
+    [applyContentRiseOffset],
+  );
+
+  const cancelContentRise = useCallback(() => {
+    if (contentRiseFrameRef.current !== null) {
+      window.cancelAnimationFrame(contentRiseFrameRef.current);
+      contentRiseFrameRef.current = null;
+    }
+    contentRiseLastFrameTimeRef.current = null;
+    contentRiseOffsetRef.current = 0;
+    applyContentRiseOffset(0);
+  }, [applyContentRiseOffset]);
+
+  const animateContentRise = useCallback(
+    (distance: number) => {
+      if (
+        !timelineRef.current ||
+        Math.abs(distance) <= 0.5 ||
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ) {
+        return;
+      }
+      // Symmetric for both directions: a growing block (positive distance) rises
+      // from below into place, a shrinking one (negative distance, e.g. collapsing
+      // a tool-call group) settles from above.
+      //
+      // A retarget while already rising just nudges the running offset and lets
+      // the existing per-frame decay (stepContentRise) keep going -- it never
+      // restarts the loop, so there is no fresh "attack" slope to jar against
+      // the outgoing velocity the way replaying a fixed-duration tween would.
+      contentRiseOffsetRef.current += distance;
+      applyContentRiseOffset(contentRiseOffsetRef.current);
+      if (contentRiseFrameRef.current === null) {
+        contentRiseFrameRef.current = window.requestAnimationFrame(stepContentRise);
+      }
+    },
+    [applyContentRiseOffset, stepContentRise],
+  );
+
+  useEffect(() => cancelContentRise, [cancelContentRise]);
+
+  const applyFooterRiseOffset = useCallback((offset: number) => {
+    const node = liveAuxiliaryRef.current;
+    if (!node) {
+      return;
+    }
+    node.style.transform = offset === 0 ? "" : `translateY(${offset}px)`;
+  }, []);
+
+  const stepFooterRise = useCallback(
+    (timestamp: number) => {
+      const lastFrameTime = footerRiseLastFrameTimeRef.current;
+      footerRiseLastFrameTimeRef.current = timestamp;
+      const deltaMs = lastFrameTime === null ? 0 : timestamp - lastFrameTime;
+      const decay = 1 - Math.exp(-deltaMs / CONTENT_RISE_TIME_CONSTANT_MS);
+      const next = footerRiseOffsetRef.current * (1 - decay);
+      if (Math.abs(next) < CONTENT_RISE_SETTLE_EPSILON_PX) {
+        footerRiseOffsetRef.current = 0;
+        footerRiseLastFrameTimeRef.current = null;
+        footerRiseFrameRef.current = null;
+        applyFooterRiseOffset(0);
+        return;
+      }
+      footerRiseOffsetRef.current = next;
+      applyFooterRiseOffset(next);
+      footerRiseFrameRef.current = window.requestAnimationFrame(stepFooterRise);
+    },
+    [applyFooterRiseOffset],
+  );
+
+  const cancelFooterRise = useCallback(() => {
+    if (footerRiseFrameRef.current !== null) {
+      window.cancelAnimationFrame(footerRiseFrameRef.current);
+      footerRiseFrameRef.current = null;
+    }
+    footerRiseLastFrameTimeRef.current = null;
+    footerRiseOffsetRef.current = 0;
+    applyFooterRiseOffset(0);
+    footerLastTopRef.current = null;
+  }, [applyFooterRiseOffset]);
+
+  const animateFooterRise = useCallback(
+    (distance: number) => {
+      if (
+        !liveAuxiliaryRef.current ||
+        Math.abs(distance) <= 0.5 ||
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ) {
+        return;
+      }
+      footerRiseOffsetRef.current += distance;
+      applyFooterRiseOffset(footerRiseOffsetRef.current);
+      if (footerRiseFrameRef.current === null) {
+        footerRiseFrameRef.current = window.requestAnimationFrame(stepFooterRise);
+      }
+    },
+    [applyFooterRiseOffset, stepFooterRise],
+  );
+
+  // The footer is glued to the bottom once the timeline fills the viewport --
+  // scrollTop absorbs further growth, so its resting screen position never
+  // moves and this is a no-op (matching the glued steady state). Before that
+  // point (short conversations, early in a turn), new lines simply push it
+  // down the page with nothing to scroll yet, so its resting position does
+  // change on every line. FLIP the measured delta into a decaying offset so
+  // that march down the page glides instead of popping, without having to
+  // know which of the two regimes is active.
+  const glideFooterToRestingPosition = useCallback(() => {
+    const node = liveAuxiliaryRef.current;
+    if (!node) {
+      return;
+    }
+    const restingTop = node.getBoundingClientRect().top - footerRiseOffsetRef.current;
+    const previousRestingTop = footerLastTopRef.current;
+    footerLastTopRef.current = restingTop;
+    if (previousRestingTop === null) {
+      return;
+    }
+    animateFooterRise(previousRestingTop - restingTop);
+  }, [animateFooterRise]);
+
+  useEffect(() => cancelFooterRise, [cancelFooterRise]);
+
   const clearMouseScrollGesture = useCallback(() => {
     const gesture = mouseScrollGestureRef.current;
     const evidenceExpiryFrame = gesture?.kind === "autoscroll" ? gesture.evidenceExpiryFrame : null;
@@ -666,8 +852,17 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     pendingVirtualRowMeasureFramesRef.current.clear();
     clearMouseScrollGesture();
     clearUpwardInputEvidence();
+    cancelContentRise();
+    cancelFooterRise();
     lastTouchClientYRef.current = null;
-  }, [cancelPendingStickToBottom, clearMouseScrollGesture, clearUpwardInputEvidence, isActive]);
+  }, [
+    cancelContentRise,
+    cancelFooterRise,
+    cancelPendingStickToBottom,
+    clearMouseScrollGesture,
+    clearUpwardInputEvidence,
+    isActive,
+  ]);
 
   const scrollMessagesToBottom = useCallback(
     (behavior: ScrollBehaviorLike = "auto") => {
@@ -690,6 +885,22 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     [evaluateHistoryStart, onNearBottomChange],
   );
 
+  const stickFollowedOutputToBottom = useCallback(() => {
+    if (!isActiveRef.current || !followOutputRef.current) {
+      return;
+    }
+    const activeScrollContainer = scrollContainerRef.current;
+    if (activeScrollContainer && isScrollContainerOverscrolledPastBottom(activeScrollContainer)) {
+      return;
+    }
+    cancelPendingStickToBottom();
+    const previousScrollTop = activeScrollContainer?.scrollTop ?? 0;
+    scrollMessagesToBottom("auto");
+    if (activeScrollContainer) {
+      animateContentRise(activeScrollContainer.scrollTop - previousScrollTop);
+    }
+  }, [animateContentRise, cancelPendingStickToBottom, scrollMessagesToBottom]);
+
   const scheduleStickToBottom = useCallback(() => {
     if (!isActiveRef.current) {
       return;
@@ -703,12 +914,9 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     }
     pendingAutoScrollFrameRef.current = window.requestAnimationFrame(() => {
       pendingAutoScrollFrameRef.current = null;
-      if (!isActiveRef.current || !followOutputRef.current) {
-        return;
-      }
-      scrollMessagesToBottom("auto");
+      stickFollowedOutputToBottom();
     });
-  }, [scrollMessagesToBottom]);
+  }, [stickFollowedOutputToBottom]);
 
   const forceStickToBottom = useCallback(() => {
     cancelPendingStickToBottom();
@@ -768,9 +976,15 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     setFollowOutput,
     onNearBottomChange,
   });
+  // rowVirtualizer is a fresh object every render, so scrollToMessage's identity
+  // churns every render too. Read it through a stable wrapper so the viewport
+  // handle effect below doesn't tear down and rebuild (and cancel the in-flight
+  // content rise) on every stream update.
+  const stableScrollToMessage = useStableEvent(scrollToMessage);
 
   const stopFollowingOutputFromUserIntent = useStableEvent(() => {
     cancelPendingStickToBottom();
+    cancelContentRise();
     if (followOutputRef.current) {
       setFollowOutput(false);
     }
@@ -864,6 +1078,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   // Following output is a layout invariant: rows, footer, and bottom offset must
   // reach the browser in the same paint.
   useLayoutEffect(() => {
+    const previousLayout = lastActiveFollowOutputLayoutRef.current;
     const layout: ActiveFollowOutputLayout = {
       scrollContainer: scrollContainerRef.current,
       viewportWidth: window.innerWidth,
@@ -890,10 +1105,21 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     }
     lastActiveFollowOutputLayoutRef.current = layout;
     if (!followOutputRef.current || resumedUnchangedLayout) return;
+    const scrollContainer = scrollContainerRef.current;
+    const previousScrollTop = scrollContainer?.scrollTop ?? 0;
     cancelPendingStickToBottom();
     scrollMessagesToBottom("auto");
+    if (
+      scrollContainer &&
+      previousLayout?.activationKey === activationKey &&
+      previousLayout.isActivationReady &&
+      isActivationReady
+    ) {
+      animateContentRise(scrollContainer.scrollTop - previousScrollTop);
+    }
   }, [
     activationKey,
+    animateContentRise,
     cancelPendingStickToBottom,
     isActive,
     isActivationReady,
@@ -965,16 +1191,24 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       if (historyStartPaginationStateRef.current.status === "settling") {
         scheduleHistoryStartPrependSettle();
       }
+      // Runs after the prepend-anchor compensation above so a history-prepend's
+      // scroll adjustment (which keeps everything below the anchor visually
+      // still) lands before measuring, instead of reading a transient position.
+      glideFooterToRestingPosition();
       updateScrollMetrics();
       evaluateHistoryStart();
       if (!followOutputRef.current) {
         return;
       }
-      scheduleStickToBottom();
+      stickFollowedOutputToBottom();
     });
     observer.observe(scrollContainer);
     if (contentNode) {
       observer.observe(contentNode);
+    }
+    const timelineNode = timelineRef.current;
+    if (timelineNode) {
+      observer.observe(timelineNode);
     }
     return () => {
       observer.disconnect();
@@ -982,10 +1216,11 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   }, [
     applyHistoryStartPrependAnchor,
     evaluateHistoryStart,
+    glideFooterToRestingPosition,
     isActive,
     reportReadingPosition,
     scheduleHistoryStartPrependSettle,
-    scheduleStickToBottom,
+    stickFollowedOutputToBottom,
     updateScrollMetrics,
   ]);
 
@@ -1143,7 +1378,13 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       scrollToBottom: () => {
         setFollowOutput(true);
         cancelPendingStickToBottom();
-        forceStickToBottom();
+        const activeScrollContainer = scrollContainerRef.current;
+        const previousScrollTop = activeScrollContainer?.scrollTop ?? 0;
+        scrollMessagesToBottom("auto");
+        if (activeScrollContainer) {
+          animateContentRise(activeScrollContainer.scrollTop - previousScrollTop);
+        }
+        scheduleStickToBottom();
       },
       prepareForViewportChange: () => {
         if (!followOutputRef.current) {
@@ -1151,7 +1392,7 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
         }
         scheduleStickToBottom();
       },
-      scrollToMessage,
+      scrollToMessage: stableScrollToMessage,
     };
     viewportRef.current = handle;
     return () => {
@@ -1159,12 +1400,17 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
         viewportRef.current = null;
       }
       cancelPendingStickToBottom();
+      cancelContentRise();
+      cancelFooterRise();
     };
   }, [
+    animateContentRise,
+    cancelContentRise,
+    cancelFooterRise,
     cancelPendingStickToBottom,
-    forceStickToBottom,
     scheduleStickToBottom,
-    scrollToMessage,
+    scrollMessagesToBottom,
+    stableScrollToMessage,
     viewportRef,
   ]);
 
@@ -1180,6 +1426,15 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
       boxSizing: "border-box",
     };
   }, [isMobileBreakpoint]);
+  const timelineContainerStyle = useMemo(
+    (): CSSProperties => ({
+      display: "flex",
+      flexDirection: "column",
+      width: "100%",
+      willChange: "transform",
+    }),
+    [],
+  );
   const scrollContainerStyle = useMemo((): CSSProperties => {
     const overlayScrollbarEnabled = scrollEnabled && !isMobileBreakpoint;
     return {
@@ -1278,36 +1533,46 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
         id={`agent-chat-scroll-${shouldUseVirtualizer ? "web-dom-virtualized" : "web-dom-scroll"}`}
         style={scrollContainerStyle}
       >
-        <div ref={handleContentRef} style={contentContainerStyle}>
+        <div ref={handleContentRef} data-testid="agent-chat-content" style={contentContainerStyle}>
           {historyStartSlot}
-          {shouldUseVirtualizer ? (
-            <div style={virtualRowsContainerStyle}>
-              {virtualRows.map((virtualRow) => {
-                const item = segments.historyVirtualized[virtualRow.index];
-                if (!item) {
-                  return null;
-                }
-                return (
-                  <div
-                    key={virtualRow.key}
-                    data-index={virtualRow.index}
-                    data-history-row-id={item.id}
-                    data-message-id={getStreamItemMessageId(item)}
-                    ref={measureVirtualizedRowElement}
-                    style={renderVirtualRowStyle(virtualRow.start)}
-                  >
-                    {renderHistoryVirtualizedRow(
-                      item,
-                      virtualRow.index,
-                      segments.historyVirtualized,
-                    )}
-                  </div>
-                );
-              })}
+          <div data-testid="agent-chat-timeline-clip" style={timelineClipStyle}>
+            <div
+              ref={handleTimelineRef}
+              data-testid="agent-chat-timeline"
+              style={timelineContainerStyle}
+            >
+              {shouldUseVirtualizer ? (
+                <div style={virtualRowsContainerStyle}>
+                  {virtualRows.map((virtualRow) => {
+                    const item = segments.historyVirtualized[virtualRow.index];
+                    if (!item) {
+                      return null;
+                    }
+                    return (
+                      <div
+                        key={virtualRow.key}
+                        data-index={virtualRow.index}
+                        data-history-row-id={item.id}
+                        data-message-id={getStreamItemMessageId(item)}
+                        ref={measureVirtualizedRowElement}
+                        style={renderVirtualRowStyle(virtualRow.start)}
+                      >
+                        {renderHistoryVirtualizedRow(
+                          item,
+                          virtualRow.index,
+                          segments.historyVirtualized,
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+              {mountedRows}
             </div>
-          ) : null}
-          {mountedRows}
-          {liveAuxiliary}
+          </div>
+          <div ref={handleLiveAuxiliaryRef} style={streamRowStyle}>
+            {liveAuxiliary}
+          </div>
           {shouldRenderEmpty ? listEmptyComponent : null}
         </div>
       </div>

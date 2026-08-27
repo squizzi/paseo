@@ -59,7 +59,10 @@ describe("createWebStreamStrategy", () => {
   let root: Root | null = null;
   let container: HTMLDivElement | null = null;
   let originalScrollTo: HTMLElement["scrollTo"] | undefined;
+  let originalAnimate: HTMLElement["animate"] | undefined;
   let originalOffsetHeight: PropertyDescriptor | undefined;
+  let originalRequestAnimationFrame: typeof window.requestAnimationFrame | undefined;
+  let originalCancelAnimationFrame: typeof window.cancelAnimationFrame | undefined;
 
   beforeEach(() => {
     Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", {
@@ -76,6 +79,11 @@ describe("createWebStreamStrategy", () => {
     });
     originalScrollTo = HTMLElement.prototype.scrollTo;
     HTMLElement.prototype.scrollTo = vi.fn();
+    originalAnimate = HTMLElement.prototype.animate;
+    HTMLElement.prototype.animate = vi.fn(() => ({
+      addEventListener: vi.fn(),
+      cancel: vi.fn(),
+    })) as unknown as typeof HTMLElement.prototype.animate;
     originalOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
     Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
       configurable: true,
@@ -83,6 +91,8 @@ describe("createWebStreamStrategy", () => {
         return 24;
       },
     });
+    originalRequestAnimationFrame = window.requestAnimationFrame;
+    originalCancelAnimationFrame = window.cancelAnimationFrame;
   });
 
   afterEach(() => {
@@ -99,10 +109,25 @@ describe("createWebStreamStrategy", () => {
     } else {
       Reflect.deleteProperty(HTMLElement.prototype, "scrollTo");
     }
+    if (originalAnimate) {
+      HTMLElement.prototype.animate = originalAnimate;
+    } else {
+      Reflect.deleteProperty(HTMLElement.prototype, "animate");
+    }
     if (originalOffsetHeight) {
       Object.defineProperty(HTMLElement.prototype, "offsetHeight", originalOffsetHeight);
     } else {
       Reflect.deleteProperty(HTMLElement.prototype, "offsetHeight");
+    }
+    if (originalRequestAnimationFrame) {
+      window.requestAnimationFrame = originalRequestAnimationFrame;
+    } else {
+      Reflect.deleteProperty(window, "requestAnimationFrame");
+    }
+    if (originalCancelAnimationFrame) {
+      window.cancelAnimationFrame = originalCancelAnimationFrame;
+    } else {
+      Reflect.deleteProperty(window, "cancelAnimationFrame");
     }
     vi.restoreAllMocks();
   });
@@ -1347,6 +1372,427 @@ describe("createWebStreamStrategy", () => {
       );
     });
     expect(scrollTo).not.toHaveBeenCalled();
+  });
+
+  it("rises the timeline in the same frame as followed content growth", () => {
+    const observed = new Map<
+      Element,
+      { callback: ResizeObserverCallback; observer: ResizeObserver }
+    >();
+    Object.defineProperty(globalThis, "ResizeObserver", {
+      configurable: true,
+      value: class TestResizeObserver {
+        constructor(private readonly callback: ResizeObserverCallback) {}
+
+        observe(target: Element) {
+          observed.set(target, {
+            callback: this.callback,
+            observer: this as unknown as ResizeObserver,
+          });
+        }
+
+        disconnect() {}
+
+        unobserve() {}
+      },
+    });
+    const notifyResize = (target: Element) => {
+      const observation = observed.get(target);
+      if (!observation) {
+        throw new Error("Expected observed resize target");
+      }
+      observation.callback(
+        [
+          {
+            target,
+            contentRect: target.getBoundingClientRect(),
+          } as ResizeObserverEntry,
+        ],
+        observation.observer,
+      );
+    };
+    const scrollTo = vi.fn(function (this: HTMLElement, options?: ScrollToOptions | number) {
+      const requestedTop = typeof options === "object" ? (options.top ?? 0) : 0;
+      const maxTop = Math.max(0, this.scrollHeight - this.clientHeight);
+      Object.defineProperty(this, "scrollTop", {
+        configurable: true,
+        value: Math.min(requestedTop, maxTop),
+      });
+    });
+    HTMLElement.prototype.scrollTo = scrollTo;
+    const rafCallbackRef: { current: FrameRequestCallback | null } = { current: null };
+    const requestAnimationFrame = vi.fn((callback: FrameRequestCallback) => {
+      rafCallbackRef.current = callback;
+      return 1;
+    });
+    window.requestAnimationFrame = requestAnimationFrame as typeof window.requestAnimationFrame;
+    window.cancelAnimationFrame = vi.fn() as typeof window.cancelAnimationFrame;
+
+    const strategy = createWebStreamStrategy({ isMobileBreakpoint: true });
+    const liveHead = [userMessage(1)];
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    const renderers = createRenderers(vi.fn());
+    renderers.renderLiveAuxiliary = () => <div data-testid="live-auxiliary" />;
+
+    act(() => {
+      root?.render(
+        strategy.render({
+          agentId: "agent",
+          segments: {
+            historyVirtualized: [],
+            historyMounted: [],
+            liveHead,
+          },
+          boundary: {
+            hasVirtualizedHistory: false,
+            hasMountedHistory: false,
+            hasLiveHead: true,
+          },
+          renderers,
+          listEmptyComponent: null,
+          viewportRef: React.createRef<StreamViewportHandle>(),
+          routeBottomAnchorRequest: null,
+          isAuthoritativeHistoryReady: true,
+          onNearBottomChange: vi.fn(),
+          onNearHistoryStart: vi.fn().mockReturnValue(true),
+          isLoadingOlderHistory: false,
+          hasOlderHistory: false,
+          olderHistoryProgressKey: null,
+          scrollEnabled: true,
+          listStyle: null,
+          baseListContentContainerStyle: null,
+          forwardListContentContainerStyle: null,
+          contentMaxWidth: DEFAULT_CONTENT_MAX_WIDTH,
+        }),
+      );
+    });
+
+    const scrollContainer = container.querySelector('[data-testid="agent-chat-scroll"]');
+    const contentNode = container.querySelector('[data-testid="agent-chat-content"]');
+    const timelineClip = container.querySelector('[data-testid="agent-chat-timeline-clip"]');
+    const timeline = container.querySelector('[data-testid="agent-chat-timeline"]');
+    const liveAuxiliary = container.querySelector('[data-testid="live-auxiliary"]');
+    const liveAuxiliaryWrapper = liveAuxiliary?.parentElement ?? null;
+    if (
+      !(scrollContainer instanceof HTMLElement) ||
+      !(contentNode instanceof HTMLElement) ||
+      !(timelineClip instanceof HTMLElement) ||
+      !(timeline instanceof HTMLElement) ||
+      !(liveAuxiliary instanceof HTMLElement) ||
+      !(liveAuxiliaryWrapper instanceof HTMLElement)
+    ) {
+      throw new Error("Expected followed chat scroll, clipped timeline, and live footer");
+    }
+    expect(timeline.contains(liveAuxiliary)).toBe(false);
+    expect(timelineClip.contains(timeline)).toBe(true);
+    expect(timelineClip.contains(liveAuxiliaryWrapper)).toBe(false);
+    expect(timelineClip.style.overflow).toBe("hidden");
+    expect(timelineClip.nextElementSibling).toBe(liveAuxiliaryWrapper);
+
+    Object.defineProperty(scrollContainer, "clientHeight", { configurable: true, value: 400 });
+    Object.defineProperty(scrollContainer, "scrollHeight", { configurable: true, value: 800 });
+    Object.defineProperty(scrollContainer, "scrollTop", { configurable: true, value: 400 });
+    act(() => scrollContainer.dispatchEvent(new Event("scroll")));
+    scrollTo.mockClear();
+    requestAnimationFrame.mockClear();
+
+    Object.defineProperty(scrollContainer, "scrollHeight", { configurable: true, value: 860 });
+    act(() => notifyResize(contentNode));
+
+    // The compensating offset is applied synchronously in the same resize
+    // handler that snaps scrollTop, so the timeline never paints a frame
+    // where the content has jumped but the offset hasn't landed yet.
+    expect(scrollTo).toHaveBeenCalledWith({ top: 860, behavior: "auto" });
+    expect(timeline.style.transform).toBe("translateY(60px)");
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+    // The footer is glued to the bottom once scrollTop is absorbing growth, so
+    // it never gets the timeline's scrollTop-driven compensation offset --
+    // jsdom reports a constant (zero) bounding rect for it here, so the
+    // FLIP-based footer glide sees no position delta either.
+    expect(liveAuxiliaryWrapper.style.transform).toBe("");
+
+    // First frame only records the baseline timestamp (no elapsed interval
+    // to decay over yet); the second frame decays it toward zero.
+    rafCallbackRef.current?.(1000);
+    expect(timeline.style.transform).toBe("translateY(60px)");
+    rafCallbackRef.current?.(1050);
+    expect(timeline.style.transform).not.toBe("translateY(60px)");
+    const [, offsetText] = /^translateY\(([-\d.]+)px\)$/.exec(timeline.style.transform) ?? [];
+    const offset = Number(offsetText);
+    expect(offset).toBeGreaterThan(0);
+    expect(offset).toBeLessThan(60);
+    expect(liveAuxiliaryWrapper.style.transform).toBe("");
+  });
+
+  it("glides the footer to its new resting position when content pushes it down without scrolling", () => {
+    const observed = new Map<
+      Element,
+      { callback: ResizeObserverCallback; observer: ResizeObserver }
+    >();
+    Object.defineProperty(globalThis, "ResizeObserver", {
+      configurable: true,
+      value: class TestResizeObserver {
+        constructor(private readonly callback: ResizeObserverCallback) {}
+
+        observe(target: Element) {
+          observed.set(target, {
+            callback: this.callback,
+            observer: this as unknown as ResizeObserver,
+          });
+        }
+
+        disconnect() {}
+
+        unobserve() {}
+      },
+    });
+    const notifyResize = (target: Element) => {
+      const observation = observed.get(target);
+      if (!observation) {
+        throw new Error("Expected observed resize target");
+      }
+      observation.callback(
+        [{ target, contentRect: target.getBoundingClientRect() } as ResizeObserverEntry],
+        observation.observer,
+      );
+    };
+    const rafCallbackRef: { current: FrameRequestCallback | null } = { current: null };
+    const requestAnimationFrame = vi.fn((callback: FrameRequestCallback) => {
+      rafCallbackRef.current = callback;
+      return 1;
+    });
+    window.requestAnimationFrame = requestAnimationFrame as typeof window.requestAnimationFrame;
+    window.cancelAnimationFrame = vi.fn() as typeof window.cancelAnimationFrame;
+
+    const strategy = createWebStreamStrategy({ isMobileBreakpoint: true });
+    const liveHead = [userMessage(1)];
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    const renderers = createRenderers(vi.fn());
+    renderers.renderLiveAuxiliary = () => <div data-testid="live-auxiliary" />;
+
+    act(() => {
+      root?.render(
+        strategy.render({
+          agentId: "agent",
+          segments: {
+            historyVirtualized: [],
+            historyMounted: [],
+            liveHead,
+          },
+          boundary: {
+            hasVirtualizedHistory: false,
+            hasMountedHistory: false,
+            hasLiveHead: true,
+          },
+          renderers,
+          listEmptyComponent: null,
+          viewportRef: React.createRef<StreamViewportHandle>(),
+          routeBottomAnchorRequest: null,
+          isAuthoritativeHistoryReady: true,
+          onNearBottomChange: vi.fn(),
+          onNearHistoryStart: vi.fn().mockReturnValue(true),
+          isLoadingOlderHistory: false,
+          hasOlderHistory: false,
+          olderHistoryProgressKey: null,
+          scrollEnabled: true,
+          listStyle: null,
+          baseListContentContainerStyle: null,
+          forwardListContentContainerStyle: null,
+          contentMaxWidth: DEFAULT_CONTENT_MAX_WIDTH,
+        }),
+      );
+    });
+
+    const scrollContainer = container.querySelector('[data-testid="agent-chat-scroll"]');
+    const contentNode = container.querySelector('[data-testid="agent-chat-content"]');
+    const liveAuxiliary = container.querySelector('[data-testid="live-auxiliary"]');
+    const liveAuxiliaryWrapper = liveAuxiliary?.parentElement ?? null;
+    if (
+      !(scrollContainer instanceof HTMLElement) ||
+      !(contentNode instanceof HTMLElement) ||
+      !(liveAuxiliaryWrapper instanceof HTMLElement)
+    ) {
+      throw new Error("Expected followed chat scroll, content, and live footer");
+    }
+
+    // Content shorter than the viewport: nothing to scroll, so growth just
+    // pushes the footer further down the page in normal flow.
+    Object.defineProperty(scrollContainer, "clientHeight", { configurable: true, value: 400 });
+    Object.defineProperty(scrollContainer, "scrollHeight", { configurable: true, value: 120 });
+    let footerTop = 100;
+    liveAuxiliaryWrapper.getBoundingClientRect = () => ({ top: footerTop }) as DOMRect;
+    requestAnimationFrame.mockClear();
+
+    // First observation only establishes the baseline resting position --
+    // there is nothing to glide from yet.
+    act(() => notifyResize(contentNode));
+    expect(liveAuxiliaryWrapper.style.transform).toBe("");
+    expect(requestAnimationFrame).not.toHaveBeenCalled();
+
+    // A new line lands above the footer and pushes it down by 24px.
+    footerTop += 24;
+    Object.defineProperty(scrollContainer, "scrollHeight", { configurable: true, value: 144 });
+    act(() => notifyResize(contentNode));
+
+    // The footer is pinned at its old (higher) position via a compensating
+    // offset in the same pass that the DOM already moved it down, so there is
+    // no painted frame where it sits at its final position unanimated.
+    expect(liveAuxiliaryWrapper.style.transform).toBe("translateY(-24px)");
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+
+    // It eases down toward its new resting spot rather than popping there.
+    rafCallbackRef.current?.(1000);
+    expect(liveAuxiliaryWrapper.style.transform).toBe("translateY(-24px)");
+    rafCallbackRef.current?.(1050);
+    const [, offsetText] =
+      /^translateY\(([-\d.]+)px\)$/.exec(liveAuxiliaryWrapper.style.transform) ?? [];
+    const offset = Number(offsetText);
+    expect(offset).toBeLessThan(0);
+    expect(offset).toBeGreaterThan(-24);
+  });
+
+  it("retargets an in-flight rise without restarting its decay", () => {
+    const observed = new Map<
+      Element,
+      { callback: ResizeObserverCallback; observer: ResizeObserver }
+    >();
+    Object.defineProperty(globalThis, "ResizeObserver", {
+      configurable: true,
+      value: class TestResizeObserver {
+        constructor(private readonly callback: ResizeObserverCallback) {}
+
+        observe(target: Element) {
+          observed.set(target, {
+            callback: this.callback,
+            observer: this as unknown as ResizeObserver,
+          });
+        }
+
+        disconnect() {}
+
+        unobserve() {}
+      },
+    });
+    const notifyResize = (target: Element) => {
+      const observation = observed.get(target);
+      if (!observation) {
+        throw new Error("Expected observed resize target");
+      }
+      observation.callback(
+        [
+          {
+            target,
+            contentRect: target.getBoundingClientRect(),
+          } as ResizeObserverEntry,
+        ],
+        observation.observer,
+      );
+    };
+    const scrollTo = vi.fn(function (this: HTMLElement, options?: ScrollToOptions | number) {
+      const requestedTop = typeof options === "object" ? (options.top ?? 0) : 0;
+      const maxTop = Math.max(0, this.scrollHeight - this.clientHeight);
+      Object.defineProperty(this, "scrollTop", {
+        configurable: true,
+        value: Math.min(requestedTop, maxTop),
+      });
+    });
+    HTMLElement.prototype.scrollTo = scrollTo;
+    const rafCallbackRef: { current: FrameRequestCallback | null } = { current: null };
+    const requestAnimationFrame = vi.fn((callback: FrameRequestCallback) => {
+      rafCallbackRef.current = callback;
+      return 1;
+    });
+    window.requestAnimationFrame = requestAnimationFrame as typeof window.requestAnimationFrame;
+    window.cancelAnimationFrame = vi.fn() as typeof window.cancelAnimationFrame;
+
+    const strategy = createWebStreamStrategy({ isMobileBreakpoint: true });
+    const liveHead = [userMessage(1)];
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root?.render(
+        strategy.render({
+          agentId: "agent",
+          segments: {
+            historyVirtualized: [],
+            historyMounted: [],
+            liveHead,
+          },
+          boundary: {
+            hasVirtualizedHistory: false,
+            hasMountedHistory: false,
+            hasLiveHead: true,
+          },
+          renderers: createRenderers(vi.fn()),
+          listEmptyComponent: null,
+          viewportRef: React.createRef<StreamViewportHandle>(),
+          routeBottomAnchorRequest: null,
+          isAuthoritativeHistoryReady: true,
+          onNearBottomChange: vi.fn(),
+          onNearHistoryStart: vi.fn().mockReturnValue(true),
+          isLoadingOlderHistory: false,
+          hasOlderHistory: false,
+          olderHistoryProgressKey: null,
+          scrollEnabled: true,
+          listStyle: null,
+          baseListContentContainerStyle: null,
+          forwardListContentContainerStyle: null,
+          contentMaxWidth: DEFAULT_CONTENT_MAX_WIDTH,
+        }),
+      );
+    });
+
+    const scrollContainer = container.querySelector('[data-testid="agent-chat-scroll"]');
+    const contentNode = container.querySelector('[data-testid="agent-chat-content"]');
+    const timeline = container.querySelector('[data-testid="agent-chat-timeline"]');
+    if (
+      !(scrollContainer instanceof HTMLElement) ||
+      !(contentNode instanceof HTMLElement) ||
+      !(timeline instanceof HTMLElement)
+    ) {
+      throw new Error("Expected followed chat scroll, content, and timeline");
+    }
+
+    Object.defineProperty(scrollContainer, "clientHeight", { configurable: true, value: 400 });
+    Object.defineProperty(scrollContainer, "scrollHeight", { configurable: true, value: 800 });
+    Object.defineProperty(scrollContainer, "scrollTop", { configurable: true, value: 400 });
+    act(() => scrollContainer.dispatchEvent(new Event("scroll")));
+    scrollTo.mockClear();
+    requestAnimationFrame.mockClear();
+
+    Object.defineProperty(scrollContainer, "scrollHeight", { configurable: true, value: 860 });
+    act(() => notifyResize(contentNode));
+
+    expect(timeline.style.transform).toBe("translateY(60px)");
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+
+    // Let the running decay progress partway before the next retarget lands.
+    // Each tick that doesn't settle reschedules itself, so the call count
+    // keeps climbing on its own -- that's the loop continuing, not a restart.
+    rafCallbackRef.current?.(1000);
+    rafCallbackRef.current?.(1050);
+    const [, midOffsetText] = /^translateY\(([-\d.]+)px\)$/.exec(timeline.style.transform) ?? [];
+    const midOffset = Number(midOffsetText);
+    expect(midOffset).toBeGreaterThan(0);
+    expect(midOffset).toBeLessThan(60);
+    const callsBeforeRetarget = requestAnimationFrame.mock.calls.length;
+
+    Object.defineProperty(scrollContainer, "scrollHeight", { configurable: true, value: 880 });
+    act(() => notifyResize(contentNode));
+
+    // Retargeting adds to the still-decaying offset in place instead of
+    // cancelling and replaying a fresh animation -- since the loop is already
+    // running, it schedules no additional frame of its own.
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(callsBeforeRetarget);
+    const [, nextOffsetText] = /^translateY\(([-\d.]+)px\)$/.exec(timeline.style.transform) ?? [];
+    const nextOffset = Number(nextOffsetText);
+    expect(nextOffset).toBeCloseTo(midOffset + 20, 5);
   });
 
   it("keeps the retained viewport mounted while inactive and reconciles it once on return", async () => {

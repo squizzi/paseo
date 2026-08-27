@@ -29,11 +29,18 @@ import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import Animated from "react-native-reanimated";
 import { useTranslation } from "react-i18next";
 import { SortableInlineList } from "@/components/sortable-inline-list";
+import { resolveDisplayedWorkspaceTabTrack } from "@/screens/workspace/workspace-desktop-tabs-track";
+import {
+  WorkspaceTabMotionProvider,
+  WorkspaceTabMotionView,
+  useIsNewTab,
+} from "./workspace-tab-motion";
 import type {
   DraggableListDragHandleProps,
   DraggableRenderItemInfo,
 } from "@/components/draggable-list.types";
 import { isNative, isWeb } from "@/constants/platform";
+import { useAnimationsEnabled } from "@/hooks/use-settings";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -701,7 +708,6 @@ function TabChip({
   isActive,
   isDragging,
   isFocused,
-  resolvedTabWidth,
   showLabel,
   showCloseButton,
   isCloseHovered,
@@ -720,7 +726,6 @@ function TabChip({
   isActive: boolean;
   isDragging: boolean;
   isFocused: boolean;
-  resolvedTabWidth: number;
   showLabel: boolean;
   showCloseButton: boolean;
   isCloseHovered: boolean;
@@ -769,13 +774,9 @@ function TabChip({
       isActive && !isFocused && styles.tabActiveUnfocused,
       !isActive && isHovered && styles.tabHovered,
       isWeb && isDragging && ({ cursor: "grabbing" } as object),
-      {
-        minWidth: resolvedTabWidth,
-        width: resolvedTabWidth,
-        maxWidth: resolvedTabWidth,
-      },
+      styles.tabFillSlot,
     ],
-    [isActive, isActiveFocused, isDragging, isFocused, isHovered, resolvedTabWidth],
+    [isActive, isActiveFocused, isDragging, isFocused, isHovered],
   );
 
   const handleTabPointerEnter = useCallback(() => {
@@ -1020,6 +1021,7 @@ function ResolvedWorkspaceDesktopTabsRow({
   onExitFocusMode,
 }: ResolvedWorkspaceDesktopTabsRowProps) {
   const { t } = useTranslation();
+  const animationsEnabled = useAnimationsEnabled();
   const newTabKeys = useShortcutKeys("workspace-tab-new");
   const [tabsContainerWidth, setTabsContainerWidth] = useState<number>(0);
   const [exitFocusModeWidth, setExitFocusModeWidth] = useState<number>(0);
@@ -1164,21 +1166,19 @@ function ResolvedWorkspaceDesktopTabsRow({
     [],
   );
 
-  const displayedTabs = useMemo(() => {
-    if (!trackSnapshot) {
-      return EMPTY_RESOLVED_TAB_ROWS;
-    }
-    const currentTabs = new Map(
-      tabs.map((tab, index) => [tab.tab.key, { tab, label: tabLabels[index]?.label }]),
-    );
-    return trackSnapshot.tabs.map((snapshotTab, index) => {
-      const current = currentTabs.get(snapshotTab.tab.key);
-      return current?.label === trackSnapshot.labels[index]?.label ? current.tab : snapshotTab;
-    });
-  }, [tabLabels, tabs, trackSnapshot]);
+  const displayedTrack = useMemo(
+    () =>
+      resolveDisplayedWorkspaceTabTrack({
+        tabs,
+        tabLabels,
+        snapshot: trackSnapshot,
+      }),
+    [tabLabels, tabs, trackSnapshot],
+  );
+  const displayedTabs = displayedTrack?.tabs ?? EMPTY_RESOLVED_TAB_ROWS;
 
   const { layout } = useWorkspaceTabLayout({
-    tabLabelWidths: trackSnapshot?.labelWidths ?? [],
+    tabLabelWidths: displayedTrack?.labelWidths ?? [],
     viewportWidthOverride: tabsContainerWidth > 0 ? tabsContainerWidth : null,
     metrics: layoutMetrics,
   });
@@ -1226,6 +1226,14 @@ function ResolvedWorkspaceDesktopTabsRow({
     handle: handleNewTabKeyboardAction,
   });
 
+  const isSamePaneDrag = useMemo(
+    () =>
+      animationsEnabled &&
+      activeDragTabId !== null &&
+      displayedTabs.some((tabItem) => tabItem.tab.tabId === activeDragTabId),
+    [activeDragTabId, animationsEnabled, displayedTabs],
+  );
+
   const renderTab = useCallback(
     ({
       item,
@@ -1237,8 +1245,10 @@ function ResolvedWorkspaceDesktopTabsRow({
       const layoutItem = layout.items[index] ?? null;
       const resolvedTabWidth = layoutItem?.width ?? 150;
       const showLabel = layoutItem?.showLabel ?? true;
-      const showDropIndicatorBefore = activeDragTabId !== null && tabDropPreviewIndex === index;
+      const showDropIndicatorBefore =
+        !isSamePaneDrag && activeDragTabId !== null && tabDropPreviewIndex === index;
       const showDropIndicatorAfter =
+        !isSamePaneDrag &&
         activeDragTabId !== null &&
         tabDropPreviewIndex === displayedTabs.length &&
         index === displayedTabs.length - 1;
@@ -1277,6 +1287,7 @@ function ResolvedWorkspaceDesktopTabsRow({
     [
       activeDragTabId,
       isFocused,
+      isSamePaneDrag,
       layout.closeButtonPolicy,
       layout.items,
       normalizedServerId,
@@ -1307,6 +1318,9 @@ function ResolvedWorkspaceDesktopTabsRow({
     ],
     [layout.requiresHorizontalScrollFallback],
   );
+
+  const allTabIds = useMemo(() => tabs.map((item) => item.tab.tabId), [tabs]);
+  const isLayoutReady = trackSnapshot !== null;
 
   const row = (
     <View
@@ -1347,17 +1361,19 @@ function ResolvedWorkspaceDesktopTabsRow({
           onScroll={tabScrollBoundary.onScroll}
           scrollEventThrottle={16}
         >
-          <SortableInlineList
-            data={displayedTabs}
-            keyExtractor={tabKeyExtractor}
-            useDragHandle
-            disabled={!externalDndContext && displayedTabs.length < 2}
-            onDragEnd={handleDragEnd}
-            externalDndContext={externalDndContext}
-            activeId={activeDragTabId}
-            getItemData={getTabDragData}
-            renderItem={renderTab}
-          />
+          <WorkspaceTabMotionProvider tabIds={allTabIds} ready={isLayoutReady}>
+            <SortableInlineList
+              data={displayedTabs}
+              keyExtractor={tabKeyExtractor}
+              useDragHandle
+              disabled={!externalDndContext && displayedTabs.length < 2}
+              onDragEnd={handleDragEnd}
+              externalDndContext={externalDndContext}
+              activeId={activeDragTabId}
+              getItemData={getTabDragData}
+              renderItem={renderTab}
+            />
+          </WorkspaceTabMotionProvider>
           {!layout.requiresHorizontalScrollFallback ? (
             <WorkspaceNewTabButton
               placement="inline"
@@ -1494,8 +1510,17 @@ function ResolvedDesktopTabChip({
       ? formatAgentTooltipTitle(accessibilityLabel)
       : rawTooltipLabel;
 
+  const isNew = useIsNewTab(item.tab.tabId);
+
   return (
-    <View style={styles.tabSlot}>
+    <WorkspaceTabMotionView
+      tabId={item.tab.tabId}
+      targetWidth={resolvedTabWidth}
+      entering={isNew}
+      exiting={item.isClosingTab}
+      marginHorizontal={TAB_CHIP_GAP / 2}
+      style={styles.tabSlot}
+    >
       {showDropIndicatorBefore ? (
         <View style={[styles.tabDropIndicator, styles.tabDropIndicatorBefore]} />
       ) : null}
@@ -1505,7 +1530,6 @@ function ResolvedDesktopTabChip({
         isActive={item.isActive}
         isDragging={isDragging}
         isFocused={isFocused}
-        resolvedTabWidth={resolvedTabWidth}
         showLabel={showLabel}
         showCloseButton={showCloseButton}
         isCloseHovered={item.isCloseHovered}
@@ -1522,7 +1546,7 @@ function ResolvedDesktopTabChip({
       {showDropIndicatorAfter ? (
         <View style={[styles.tabDropIndicator, styles.tabDropIndicatorAfter]} />
       ) : null}
-    </View>
+    </WorkspaceTabMotionView>
   );
 }
 
@@ -1586,6 +1610,11 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[1],
     userSelect: "none",
   },
+  tabFillSlot: {
+    width: "100%",
+    minWidth: 0,
+    maxWidth: "100%",
+  },
   tabHovered: {
     backgroundColor: theme.colors.surface1,
   },
@@ -1597,11 +1626,12 @@ const styles = StyleSheet.create((theme) => ({
   },
   tabHoverFrame: {
     position: "relative",
+    width: "100%",
+    overflow: "hidden",
   },
   tabSlot: {
     position: "relative",
     overflow: "visible",
-    marginHorizontal: TAB_CHIP_GAP / 2,
   },
   tabHandle: {
     flexDirection: "row",

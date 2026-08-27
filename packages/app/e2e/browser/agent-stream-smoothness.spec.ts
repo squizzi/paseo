@@ -16,8 +16,10 @@ import {
  *
  * Budgets are deliberately loose. This spec exists to catch a regression in the
  * shape of the stream, not to pin exact numbers on shared CI hardware. For
- * reference, on a local dev daemon the paced reveal measures a CV around 1.3–1.5
- * against 2.7 when painting deltas as they arrive.
+ * reference, on a local dev daemon character pacing measured a CV around 1.3–1.5
+ * against 2.7 when painting deltas as they arrive. Web now paints coalesced
+ * arrivals and fades the suffix; use this spec to catch stalls, not to pin the
+ * old paced-reveal CV.
  */
 
 const SAMPLE_WINDOW_MS = 6_000;

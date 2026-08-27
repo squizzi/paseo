@@ -2178,6 +2178,10 @@ export const ar: TranslationResources = {
       detailLevel: {
         title: "مستوى التفاصيل",
       },
+      animations: {
+        title: "الرسوم المتحركة",
+        description: "تلاشٍ وانزلاق وتخفيف للعناصر عند ظهورها وبثها وإعادة ترتيبها",
+      },
       chatOutline: {
         title: "مخطط المحادثة",
         description: "عرض مخطط للتنقل بين المطالبات",

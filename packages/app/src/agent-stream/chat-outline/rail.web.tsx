@@ -6,11 +6,15 @@ import { useContainerWidthBelow } from "@/hooks/use-container-width";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { createChatOutlineHoverIntent } from "./hover-intent";
 import { promptTickMagnification } from "./model";
+import {
+  CHAT_OUTLINE_RAIL_WIDTH,
+  resolveChatOutlineRailRevealStyle,
+  useChatOutlineRailReveal,
+} from "./rail-motion";
 import type { ChatOutlineRailProps } from "./rail";
 
 // Hover tracking lives on the rail and the slots, never on the Pressable inside them:
 // magnifying a slot must not move the box the pointer is resting on. See docs/hover.md.
-const RAIL_WIDTH = 36;
 const SLOT_HEIGHT = 8;
 const MIN_PANEL_WIDTH = 918;
 const RESTING_PILL_HEIGHT = 2;
@@ -31,7 +35,9 @@ export const ChatOutlineRail = memo(function ChatOutlineRail({
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
   const activeSeq = useSyncExternalStore(activePrompt.subscribe, activePrompt.getActiveSeq);
   const prefersReducedMotion = useReducedMotion();
+  const reducedMotion = prefersReducedMotion === true;
   const { onLayout, isBelow: isPanelNarrow } = useContainerWidthBelow(MIN_PANEL_WIDTH);
+  const { mounted, revealed } = useChatOutlineRailReveal(!isPanelNarrow, reducedMotion);
 
   const hoverIntent = useMemo(
     () =>
@@ -78,36 +84,41 @@ export const ChatOutlineRail = memo(function ChatOutlineRail({
 
   return (
     <View style={styles.panelMeasure} pointerEvents="box-none" onLayout={onLayout}>
-      {isPanelNarrow ? null : (
-        <View
-          style={styles.rail}
-          role="tablist"
-          testID="chat-outline-rail"
-          onPointerEnter={handlePointerEnterRail}
-          onPointerMove={handlePointerMoveRail}
-          onPointerLeave={handlePointerLeaveRail}
-        >
-          {prompts.map((prompt, index) => (
-            <ChatOutlineTick
-              key={prompt.seq}
-              index={index}
-              seq={prompt.seq}
-              preview={prompt.preview}
-              label={`${index + 1} of ${prompts.length}: ${prompt.preview}`}
-              isActive={prompt.seq === activeSeq}
-              hasAttention={index === attentionIndex}
-              magnification={
-                prefersReducedMotion || attentionIndex === null
-                  ? 0
-                  : promptTickMagnification(index - attentionIndex)
-              }
-              onHover={handlePointerEnterTick}
-              onFocusChange={handleFocusChange}
-              onJumpToPrompt={onJumpToPrompt}
-            />
-          ))}
-        </View>
-      )}
+      <View
+        style={[
+          styles.rail,
+          inlineUnistylesStyle(
+            resolveChatOutlineRailRevealStyle({ revealed, mounted, reducedMotion }),
+          ),
+        ]}
+        role="tablist"
+        testID="chat-outline-rail"
+        pointerEvents={revealed ? "auto" : "none"}
+        aria-hidden={!revealed}
+        onPointerEnter={handlePointerEnterRail}
+        onPointerMove={handlePointerMoveRail}
+        onPointerLeave={handlePointerLeaveRail}
+      >
+        {prompts.map((prompt, index) => (
+          <ChatOutlineTick
+            key={prompt.seq}
+            index={index}
+            seq={prompt.seq}
+            preview={prompt.preview}
+            label={`${index + 1} of ${prompts.length}: ${prompt.preview}`}
+            isActive={prompt.seq === activeSeq}
+            hasAttention={index === attentionIndex}
+            magnification={
+              prefersReducedMotion || attentionIndex === null
+                ? 0
+                : promptTickMagnification(index - attentionIndex)
+            }
+            onHover={handlePointerEnterTick}
+            onFocusChange={handleFocusChange}
+            onJumpToPrompt={onJumpToPrompt}
+          />
+        ))}
+      </View>
     </View>
   );
 });
@@ -188,13 +199,14 @@ const styles = StyleSheet.create((theme) => ({
   panelMeasure: {
     position: "absolute",
     inset: 0,
+    overflow: "hidden",
   },
   rail: {
     position: "absolute",
     left: theme.spacing[2],
     top: "10%",
     bottom: "10%",
-    width: RAIL_WIDTH,
+    width: CHAT_OUTLINE_RAIL_WIDTH,
     alignItems: "center",
     justifyContent: "center",
     zIndex: 2,
@@ -202,7 +214,7 @@ const styles = StyleSheet.create((theme) => ({
   // Slots tile the rail with no gaps, so every pixel of the column belongs to a prompt even
   // when a long conversation squeezes them well below their resting height.
   slot: {
-    width: RAIL_WIDTH,
+    width: CHAT_OUTLINE_RAIL_WIDTH,
     flexBasis: SLOT_HEIGHT,
     flexShrink: 1,
     alignItems: "center",
@@ -235,7 +247,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   preview: {
     position: "absolute",
-    left: RAIL_WIDTH + PREVIEW_GAP,
+    left: CHAT_OUTLINE_RAIL_WIDTH + PREVIEW_GAP,
     top: "50%",
     marginTop: -PREVIEW_HEIGHT / 2,
     width: PREVIEW_WIDTH,

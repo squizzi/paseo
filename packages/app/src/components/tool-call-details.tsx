@@ -1,4 +1,5 @@
 import React, { useMemo, type ReactNode } from "react";
+import { useFollowOutputScroll } from "@/components/ui/follow-output-scroll";
 import {
   View,
   Text,
@@ -25,6 +26,9 @@ import { HighlightedLines } from "./highlighted-content";
 import { DiffViewer } from "./diff-viewer";
 import { getCodeInsets } from "./code-insets";
 import { isWeb } from "@/constants/platform";
+import { ChatGrowthClip } from "@/agent-stream/chat-entry-motion";
+import { StreamWordFade } from "@/agent-stream/stream-word-fade";
+import { useAnimationsEnabled } from "@/hooks/use-settings";
 
 const ScrollView = isWeb ? RNScrollView : GHScrollView;
 
@@ -37,6 +41,8 @@ interface ToolCallDetailsContentProps {
   maxHeight?: number;
   fillAvailableHeight?: boolean;
   showLoadingSkeleton?: boolean;
+  followOutput?: boolean;
+  followOutputPersistKey?: string;
 }
 
 interface DetailStyles {
@@ -494,18 +500,43 @@ function FetchDetailSection({ url, result, ds }: FetchDetailProps) {
   );
 }
 
-function ScrollablePlainTextSection({ text, ds }: { text: string; ds: DetailStyles }) {
+function ScrollablePlainTextSection({
+  text,
+  ds,
+  followOutput,
+  persistKey,
+}: {
+  text: string;
+  ds: DetailStyles;
+  followOutput: boolean;
+  persistKey?: string;
+}) {
+  const animationsEnabled = useAnimationsEnabled();
+  const { scrollRef, onContentSizeChange, onScroll } = useFollowOutputScroll(
+    followOutput,
+    persistKey,
+  );
   return (
     <View style={styles.section}>
       <ScrollView
+        ref={scrollRef}
         style={ds.scrollAreaStyle}
         contentContainerStyle={styles.scrollContent}
         nestedScrollEnabled
         showsVerticalScrollIndicator
+        scrollEventThrottle={16}
+        onContentSizeChange={onContentSizeChange}
+        onScroll={onScroll}
       >
-        <Text selectable style={styles.plainText}>
-          {text}
-        </Text>
+        <ChatGrowthClip
+          enabled={followOutput}
+          style={styles.plainTextGrowthClip}
+          testID={followOutput ? "tool-call-detail-growth-clip" : undefined}
+        >
+          <Text selectable style={styles.plainText}>
+            <StreamWordFade text={text} enabled={followOutput && animationsEnabled} />
+          </Text>
+        </ChatGrowthClip>
       </ScrollView>
     </View>
   );
@@ -582,12 +613,26 @@ interface UnknownDetail {
   output: unknown;
 }
 
-function buildUnknownSections(detail: UnknownDetail, ds: DetailStyles, t: TFunction): ReactNode[] {
+function buildUnknownSections(
+  detail: UnknownDetail,
+  ds: DetailStyles,
+  t: TFunction,
+  followOutput: boolean,
+  persistKey?: string,
+): ReactNode[] {
   const plainInputText =
     typeof detail.input === "string" && detail.output === null ? detail.input : null;
 
   if (plainInputText !== null) {
-    return [<ScrollablePlainTextSection key="unknown-plain-text" text={plainInputText} ds={ds} />];
+    return [
+      <ScrollablePlainTextSection
+        key="unknown-plain-text"
+        text={plainInputText}
+        ds={ds}
+        followOutput={followOutput}
+        persistKey={persistKey}
+      />,
+    ];
   }
 
   const sectionsFromTopLevel = [
@@ -671,6 +716,8 @@ function buildDetailSections(
   diffLines: DiffLine[] | undefined,
   ds: DetailStyles,
   t: TFunction,
+  followOutput: boolean,
+  persistKey?: string,
 ): ReactNode[] {
   if (!detail) return [];
   if (detail.type === "shell") {
@@ -738,10 +785,21 @@ function buildDetailSections(
   }
   if (detail.type === "plain_text") {
     if (!detail.text) return [];
-    return [<ScrollablePlainTextSection key="plain-text" text={detail.text} ds={ds} />];
+    return [
+      <ScrollablePlainTextSection
+        key="plain-text"
+        text={detail.text}
+        ds={ds}
+        followOutput={followOutput}
+        persistKey={persistKey}
+      />,
+    ];
   }
   if (detail.type === "unknown") {
-    return buildPaseoUnknownSections(toolName, detail) ?? buildUnknownSections(detail, ds, t);
+    return (
+      buildPaseoUnknownSections(toolName, detail) ??
+      buildUnknownSections(detail, ds, t, followOutput, persistKey)
+    );
   }
   return [];
 }
@@ -780,6 +838,16 @@ function LoadingSkeleton({ containerStyle }: { containerStyle: StyleProp<ViewSty
   );
 }
 
+function usesInnerGrowthClip(detail: ToolCallDetail | undefined): boolean {
+  if (!detail) {
+    return false;
+  }
+  if (detail.type === "plain_text") {
+    return true;
+  }
+  return detail.type === "unknown" && typeof detail.input === "string" && detail.output === null;
+}
+
 export function ToolCallDetailsContent({
   toolName,
   detail,
@@ -787,13 +855,23 @@ export function ToolCallDetailsContent({
   maxHeight,
   fillAvailableHeight = false,
   showLoadingSkeleton = false,
+  followOutput = false,
+  followOutputPersistKey,
 }: ToolCallDetailsContentProps) {
   const { t } = useTranslation();
   const resolvedMaxHeight = fillAvailableHeight ? undefined : (maxHeight ?? 300);
   const ds = useDetailStyles(detail, resolvedMaxHeight, fillAvailableHeight);
   const diffLines = useDiffLines(detail);
 
-  const sections: ReactNode[] = buildDetailSections(toolName, detail, diffLines, ds, t);
+  const sections: ReactNode[] = buildDetailSections(
+    toolName,
+    detail,
+    diffLines,
+    ds,
+    t,
+    followOutput,
+    followOutputPersistKey,
+  );
 
   if (errorText) {
     sections.push(<ErrorSection key="error" errorText={errorText} ds={ds} />);
@@ -806,7 +884,16 @@ export function ToolCallDetailsContent({
     return <Text style={styles.emptyStateText}>{t("toolCallDetails.empty")}</Text>;
   }
 
-  return <View style={ds.fullBleedContainerStyle}>{sections}</View>;
+  const sectionsView = <View style={ds.fullBleedContainerStyle}>{sections}</View>;
+  const clipSections = followOutput && !usesInnerGrowthClip(detail);
+  if (!clipSections) {
+    return sectionsView;
+  }
+  return (
+    <ChatGrowthClip enabled easeInitial testID="tool-call-detail-growth-clip">
+      {sectionsView}
+    </ChatGrowthClip>
+  );
 }
 
 // ---- Styles ----
@@ -890,6 +977,10 @@ const styles = StyleSheet.create((theme) => {
       color: theme.colors.foreground,
       lineHeight: 22,
       overflowWrap: "anywhere",
+    },
+    plainTextGrowthClip: {
+      alignSelf: "stretch",
+      width: "100%",
     },
     sectionTitle: {
       color: theme.colors.foregroundMuted,
