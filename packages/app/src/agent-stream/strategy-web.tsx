@@ -1423,8 +1423,8 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
               </div>
             ) : null}
             {mountedRows}
+            {liveAuxiliary}
           </div>
-          {liveAuxiliary}
           {shouldRenderEmpty ? listEmptyComponent : null}
         </div>
       </div>
