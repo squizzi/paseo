@@ -3,7 +3,9 @@ import {
   isNewSidebarMotionItem,
   rememberSidebarMotionItem,
   seedSidebarItemMotionKeys,
+  shouldCommitSidebarItemMotionHydration,
   shouldMeasureSidebarItemEnterOffscreen,
+  shouldRestoreSidebarItemMotionAfterExit,
   sidebarProjectMotionKey,
   sidebarWorkspaceMotionKey,
 } from "./item-motion";
@@ -112,6 +114,58 @@ describe("sidebar item motion keys", () => {
         key: hydratedKey,
         didHydrate: true,
         seenKeys,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not commit hydration until the registry is loaded and every host directory is ready", () => {
+    expect(
+      shouldCommitSidebarItemMotionHydration({
+        enabled: true,
+        hostRegistryLoaded: false,
+        isLoading: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldCommitSidebarItemMotionHydration({
+        enabled: true,
+        hostRegistryLoaded: true,
+        isLoading: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldCommitSidebarItemMotionHydration({
+        enabled: false,
+        hostRegistryLoaded: true,
+        isLoading: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldCommitSidebarItemMotionHydration({
+        enabled: true,
+        hostRegistryLoaded: true,
+        isLoading: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("restores after a failed leave only when exit motion actually armed", () => {
+    expect(
+      shouldRestoreSidebarItemMotionAfterExit({
+        exiting: false,
+        didArmExit: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRestoreSidebarItemMotionAfterExit({
+        exiting: true,
+        didArmExit: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRestoreSidebarItemMotionAfterExit({
+        exiting: false,
+        didArmExit: false,
       }),
     ).toBe(false);
   });
