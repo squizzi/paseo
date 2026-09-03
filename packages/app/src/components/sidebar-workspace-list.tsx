@@ -172,6 +172,7 @@ import {
   rememberSidebarMotionItem,
   seedSidebarItemMotionKeys,
   shouldMeasureSidebarItemEnterOffscreen,
+  shouldRestoreSidebarItemMotionAfterExit,
   sidebarProjectMotionKey,
   sidebarWorkspaceMotionKey,
 } from "@/components/sidebar/item-motion";
@@ -222,7 +223,8 @@ function collectSidebarItemMotionKeys(input: {
 function SidebarItemMotionProvider({
   children,
   itemKeys,
-}: PropsWithChildren<{ itemKeys: readonly string[] }>) {
+  ready,
+}: PropsWithChildren<{ itemKeys: readonly string[]; ready: boolean }>) {
   const didHydrate = useRef(false);
   const seenKeys = useRef(new Set<string>());
   const registry = useMemo(() => ({ didHydrate, seenKeys }), []);
@@ -234,8 +236,11 @@ function SidebarItemMotionProvider({
   });
 
   useEffect(() => {
+    if (!ready) {
+      return;
+    }
     didHydrate.current = true;
-  }, []);
+  }, [ready]);
 
   return (
     <SidebarItemMotionContext.Provider value={registry}>
@@ -271,6 +276,7 @@ function useSidebarItemMotion(input: { entering: boolean; exiting: boolean }) {
   const height = useSharedValue(input.entering ? 0 : SIDEBAR_ITEM_MOTION_AUTO_HEIGHT);
   const measuredHeight = useRef(0);
   const didArmEnter = useRef(false);
+  const didArmExit = useRef(false);
   const [hasMeasuredEnter, setHasMeasuredEnter] = useState(!input.entering);
   const measureOffscreen = shouldMeasureSidebarItemEnterOffscreen({
     entering: input.entering,
@@ -301,12 +307,35 @@ function useSidebarItemMotion(input: { entering: boolean; exiting: boolean }) {
     };
 
     if (input.exiting) {
+      didArmExit.current = true;
       if (height.value < 0 && measuredHeight.current > 0) {
         height.value = measuredHeight.current;
       }
       height.value = withTiming(0, timing);
       offset.value = withTiming(SIDEBAR_ITEM_MOTION_OFFSET, timing);
       opacity.value = withTiming(0, timing);
+      return;
+    }
+
+    if (
+      shouldRestoreSidebarItemMotionAfterExit({
+        exiting: input.exiting,
+        didArmExit: didArmExit.current,
+      })
+    ) {
+      didArmExit.current = false;
+      const restoreHeight = measuredHeight.current;
+      if (restoreHeight > 0) {
+        height.value = withTiming(restoreHeight, timing, (finished) => {
+          if (finished) {
+            height.value = SIDEBAR_ITEM_MOTION_AUTO_HEIGHT;
+          }
+        });
+      } else {
+        height.value = SIDEBAR_ITEM_MOTION_AUTO_HEIGHT;
+      }
+      offset.value = withTiming(0, timing);
+      opacity.value = withTiming(1, timing);
       return;
     }
 
@@ -465,6 +494,7 @@ interface SidebarWorkspaceListProps {
   /** Gesture ref for coordinating with parent gestures (e.g., sidebar close) */
   parentGestureRef?: MutableRefObject<GestureType | undefined>;
   dragGestureHostActive?: boolean;
+  itemMotionReady: boolean;
 }
 
 interface ProjectHeaderRowProps {
@@ -2147,6 +2177,7 @@ export function SidebarWorkspaceList({
   listHeaderComponent,
   parentGestureRef,
   dragGestureHostActive,
+  itemMotionReady,
 }: SidebarWorkspaceListProps) {
   const pathname = usePathname();
   const hosts = useHosts();
@@ -2261,7 +2292,11 @@ export function SidebarWorkspaceList({
       />
     );
 
-  return <SidebarItemMotionProvider itemKeys={itemMotionKeys}>{content}</SidebarItemMotionProvider>;
+  return (
+    <SidebarItemMotionProvider itemKeys={itemMotionKeys} ready={itemMotionReady}>
+      {content}
+    </SidebarItemMotionProvider>
+  );
 }
 
 /**
@@ -2362,6 +2397,7 @@ function ProjectModeList({
   | "hasProjectsBeforeFilter"
   | "isRefreshing"
   | "onRefresh"
+  | "itemMotionReady"
 > & {
   /** Swaps the list body for the label filter's empty state. Never the header above it. */
   sidebarFilterEmpty: boolean;

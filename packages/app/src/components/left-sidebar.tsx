@@ -42,7 +42,8 @@ import { RetainedPanelActivity } from "@/components/retained-panel";
 import type { SidebarWorkspaceGroup } from "@/components/sidebar/sidebar-labels";
 import type { SidebarProjectIconTarget } from "@/utils/sidebar-project-row-model";
 import { type SidebarGroupMode, useSidebarViewStore } from "@/stores/sidebar-view-store";
-import { useHosts } from "@/runtime/host-runtime";
+import { shouldCommitSidebarItemMotionHydration } from "@/components/sidebar/item-motion";
+import { useHostRegistryLoaded, useHosts } from "@/runtime/host-runtime";
 import { usePanelStore } from "@/stores/panel-store";
 import { useOwnsWindowChromeCorner, WindowChromeSafeArea } from "@/utils/desktop-window";
 import { useCloseAgentListGesture } from "@/mobile-panels/gestures";
@@ -68,6 +69,7 @@ interface SidebarSharedProps {
   workspaceEntriesByKey: ReadonlyMap<string, SidebarWorkspaceEntry>;
   isInitialLoad: boolean;
   isRevalidating: boolean;
+  itemMotionReady: boolean;
   isManualRefresh: boolean;
   groupMode: SidebarGroupMode;
   collapsedProjectKeys: ReadonlySet<string>;
@@ -116,6 +118,7 @@ export const LeftSidebar = memo(function LeftSidebar({ active }: { active: boole
     resolvedProjectFilters,
     workspaceEntriesByKey,
     isInitialLoad,
+    isLoading,
     isRevalidating,
     refreshAll,
     workspaceGroups,
@@ -128,6 +131,12 @@ export const LeftSidebar = memo(function LeftSidebar({ active }: { active: boole
   } = useSidebarModel();
   const { shortcutIndexByWorkspaceKey } = shortcutModel;
 
+  const hostRegistryLoaded = useHostRegistryLoaded();
+  const itemMotionReady = shouldCommitSidebarItemMotionHydration({
+    enabled: active,
+    hostRegistryLoaded,
+    isLoading,
+  });
   const [isManualRefresh, setIsManualRefresh] = useState(false);
 
   const handleRefresh = useCallback(() => {
@@ -211,6 +220,7 @@ export const LeftSidebar = memo(function LeftSidebar({ active }: { active: boole
     workspaceEntriesByKey,
     isInitialLoad,
     isRevalidating,
+    itemMotionReady,
     isManualRefresh,
     groupMode,
     collapsedProjectKeys,
@@ -515,6 +525,7 @@ function MobileSidebar({
   workspaceEntriesByKey,
   isInitialLoad,
   isRevalidating,
+  itemMotionReady,
   isManualRefresh,
   groupMode,
   collapsedProjectKeys,
@@ -598,6 +609,7 @@ function MobileSidebar({
             onImportSession={handleImportSession}
             parentGestureRef={closeGestureRef}
             dragGestureHostActive={active}
+            itemMotionReady={itemMotionReady}
             listHeaderComponent={workspacesSectionHeaderElement}
           />
         )}
@@ -627,6 +639,7 @@ function DesktopSidebar({
   workspaceEntriesByKey,
   isInitialLoad,
   isRevalidating,
+  itemMotionReady,
   isManualRefresh,
   groupMode,
   collapsedProjectKeys,
@@ -773,6 +786,7 @@ function DesktopSidebar({
             onRefresh={handleRefresh}
             onAddProject={handleOpenProject}
             onImportSession={handleImportSession}
+            itemMotionReady={itemMotionReady}
             listHeaderComponent={workspacesSectionHeaderElement}
           />
         )}

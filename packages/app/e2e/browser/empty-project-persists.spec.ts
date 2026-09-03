@@ -9,7 +9,11 @@ import {
   openAddProjectFlow,
 } from "../support/helpers/add-project-flow";
 import { expectOpenedProject } from "../support/helpers/project-picker-ui";
-import { connectSeedClient, seedWorkspace } from "../support/helpers/seed-client";
+import {
+  connectSeedClient,
+  createWorkspaceInProject,
+  seedWorkspace,
+} from "../support/helpers/seed-client";
 import { getServerId } from "../support/helpers/server-id";
 import { projectEquivalenceViewKey } from "../support/helpers/project-view-key";
 import { createTempGitRepo } from "../support/helpers/workspace";
@@ -174,19 +178,14 @@ test.describe("Project with no workspaces persists", () => {
       await gotoAppShell(page);
       await waitForSidebarHydration(page);
 
-      const created = await workspace.client.createWorkspace({
-        source: {
-          kind: "directory",
-          path: workspace.repoPath,
-          projectId: workspace.projectId,
-        },
+      const created = await createWorkspaceInProject({
+        client: workspace.client,
+        path: workspace.repoPath,
+        projectId: workspace.projectId,
         title: "Falling workspace",
       });
-      if (!created.workspace) {
-        throw new Error(created.error ?? "Failed to create workspace");
-      }
 
-      const row = page.getByTestId(workspaceRowTestId(created.workspace.id));
+      const row = page.getByTestId(workspaceRowTestId(created.id));
       await expect(row).toBeAttached({ timeout: 30_000 });
       await expectSidebarRowIsInMotion(row);
       await expect(row).toBeVisible();

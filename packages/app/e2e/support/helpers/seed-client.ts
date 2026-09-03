@@ -220,6 +220,26 @@ export interface SeededWorkspace {
   cleanup(): Promise<void>;
 }
 
+export async function createWorkspaceInProject(input: {
+  client: SeedDaemonClient;
+  path: string;
+  projectId: string;
+  title: string;
+}): Promise<SeedWorkspaceDescriptor> {
+  const created = await input.client.createWorkspace({
+    source: {
+      kind: "directory",
+      path: input.path,
+      projectId: input.projectId,
+    },
+    title: input.title,
+  });
+  if (!created.workspace) {
+    throw new Error(created.error ?? `Failed to create workspace ${input.title}`);
+  }
+  return created.workspace;
+}
+
 export async function seedWorkspace(options: {
   repoPrefix: string;
   title?: string;
