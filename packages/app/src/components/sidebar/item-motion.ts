@@ -51,3 +51,18 @@ export function shouldMeasureSidebarItemEnterOffscreen(input: {
 }): boolean {
   return input.entering && !input.hasMeasuredEnter;
 }
+
+export function shouldCommitSidebarItemMotionHydration(input: {
+  enabled: boolean;
+  hostRegistryLoaded: boolean;
+  isLoading: boolean;
+}): boolean {
+  return input.enabled && input.hostRegistryLoaded && !input.isLoading;
+}
+
+export function shouldRestoreSidebarItemMotionAfterExit(input: {
+  exiting: boolean;
+  didArmExit: boolean;
+}): boolean {
+  return !input.exiting && input.didArmExit;
+}
