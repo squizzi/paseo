@@ -39,6 +39,7 @@ interface ToolCallDetailsContentProps {
   fillAvailableHeight?: boolean;
   showLoadingSkeleton?: boolean;
   followOutput?: boolean;
+  followOutputPersistKey?: string;
 }
 
 interface DetailStyles {
@@ -500,12 +501,17 @@ function ScrollablePlainTextSection({
   text,
   ds,
   followOutput,
+  persistKey,
 }: {
   text: string;
   ds: DetailStyles;
   followOutput: boolean;
+  persistKey?: string;
 }) {
-  const { scrollRef, onContentSizeChange, onScroll } = useFollowOutputScroll(followOutput);
+  const { scrollRef, onContentSizeChange, onScroll } = useFollowOutputScroll(
+    followOutput,
+    persistKey,
+  );
   return (
     <View style={styles.section}>
       <ScrollView
@@ -602,6 +608,7 @@ function buildUnknownSections(
   ds: DetailStyles,
   t: TFunction,
   followOutput: boolean,
+  persistKey?: string,
 ): ReactNode[] {
   const plainInputText =
     typeof detail.input === "string" && detail.output === null ? detail.input : null;
@@ -613,6 +620,7 @@ function buildUnknownSections(
         text={plainInputText}
         ds={ds}
         followOutput={followOutput}
+        persistKey={persistKey}
       />,
     ];
   }
@@ -699,6 +707,7 @@ function buildDetailSections(
   ds: DetailStyles,
   t: TFunction,
   followOutput: boolean,
+  persistKey?: string,
 ): ReactNode[] {
   if (!detail) return [];
   if (detail.type === "shell") {
@@ -772,13 +781,14 @@ function buildDetailSections(
         text={detail.text}
         ds={ds}
         followOutput={followOutput}
+        persistKey={persistKey}
       />,
     ];
   }
   if (detail.type === "unknown") {
     return (
       buildPaseoUnknownSections(toolName, detail) ??
-      buildUnknownSections(detail, ds, t, followOutput)
+      buildUnknownSections(detail, ds, t, followOutput, persistKey)
     );
   }
   return [];
@@ -826,6 +836,7 @@ export function ToolCallDetailsContent({
   fillAvailableHeight = false,
   showLoadingSkeleton = false,
   followOutput = false,
+  followOutputPersistKey,
 }: ToolCallDetailsContentProps) {
   const { t } = useTranslation();
   const resolvedMaxHeight = fillAvailableHeight ? undefined : (maxHeight ?? 300);
@@ -839,6 +850,7 @@ export function ToolCallDetailsContent({
     ds,
     t,
     followOutput,
+    followOutputPersistKey,
   );
 
   if (errorText) {
