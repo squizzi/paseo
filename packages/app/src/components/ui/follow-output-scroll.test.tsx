@@ -8,6 +8,8 @@ import type { NativeScrollEvent, ScrollView } from "react-native";
 import {
   createFollowOutputScrollState,
   reduceFollowOutputUserScroll,
+  resolveFollowOutputContentSizeAction,
+  shouldIgnoreFollowOutputScrollReset,
   shouldStickFollowOutputToBottom,
   useFollowOutputScroll,
 } from "./follow-output-scroll";
@@ -72,6 +74,19 @@ describe("follow-output scroll", () => {
 
   it("does not stick after the stream finishes", () => {
     expect(shouldStickFollowOutputToBottom({ enabled: false, following: true })).toBe(false);
+    expect(
+      resolveFollowOutputContentSizeAction({
+        enabled: false,
+        following: true,
+        restoreOffsetY: 400,
+      }),
+    ).toBe("restore");
+  });
+
+  it("ignores a reset to the start while a finished panel still has an offset to restore", () => {
+    expect(shouldIgnoreFollowOutputScrollReset({ restoreOffsetY: 400, offsetY: 0 })).toBe(true);
+    expect(shouldIgnoreFollowOutputScrollReset({ restoreOffsetY: 400, offsetY: 280 })).toBe(false);
+    expect(shouldIgnoreFollowOutputScrollReset({ restoreOffsetY: 0, offsetY: 0 })).toBe(false);
   });
 });
 
@@ -96,12 +111,13 @@ describe("useFollowOutputScroll", () => {
 
   it("keeps the latest streaming output in view until the reader scrolls up", () => {
     const scrollToEnd = vi.fn();
+    const scrollTo = vi.fn();
     let api: ReturnType<typeof useFollowOutputScroll> | undefined;
 
     function Probe({ enabled }: { enabled: boolean }) {
       api = useFollowOutputScroll(enabled);
       if (api.scrollRef.current?.scrollToEnd !== scrollToEnd) {
-        const scrollable: Pick<ScrollView, "scrollToEnd"> = { scrollToEnd };
+        const scrollable: Pick<ScrollView, "scrollToEnd" | "scrollTo"> = { scrollToEnd, scrollTo };
         Object.assign(api.scrollRef, { current: scrollable });
       }
       return null;
@@ -133,5 +149,79 @@ describe("useFollowOutputScroll", () => {
       follow.onContentSizeChange();
     });
     expect(scrollToEnd).toHaveBeenCalledWith({ animated: false });
+  });
+
+  it("leaves the scroll position alone when streaming ends", () => {
+    const scrollToEnd = vi.fn();
+    const scrollTo = vi.fn();
+    let api: ReturnType<typeof useFollowOutputScroll> | undefined;
+
+    function Probe({ enabled }: { enabled: boolean }) {
+      api = useFollowOutputScroll(enabled);
+      const scrollable: Pick<ScrollView, "scrollToEnd" | "scrollTo"> = { scrollToEnd, scrollTo };
+      Object.assign(api.scrollRef, { current: scrollable });
+      return null;
+    }
+
+    act(() => {
+      root.render(<Probe enabled />);
+    });
+    if (!api) {
+      throw new Error("Expected follow-output scroll hook");
+    }
+    const follow = api;
+
+    act(() => {
+      follow.onScroll(scrollEvent(400));
+    });
+    scrollToEnd.mockClear();
+    scrollTo.mockClear();
+
+    act(() => {
+      root.render(<Probe enabled={false} />);
+    });
+    expect(scrollToEnd).not.toHaveBeenCalled();
+    expect(scrollTo).toHaveBeenCalledWith({ y: 400, animated: false });
+
+    scrollTo.mockClear();
+    act(() => {
+      follow.onScroll(scrollEvent(0));
+    });
+    expect(scrollTo).toHaveBeenCalledWith({ y: 400, animated: false });
+    expect(scrollToEnd).not.toHaveBeenCalled();
+  });
+
+  it("does not jump a scrolled-up reader to the start when streaming ends", () => {
+    const scrollToEnd = vi.fn();
+    const scrollTo = vi.fn();
+    let api: ReturnType<typeof useFollowOutputScroll> | undefined;
+
+    function Probe({ enabled }: { enabled: boolean }) {
+      api = useFollowOutputScroll(enabled);
+      const scrollable: Pick<ScrollView, "scrollToEnd" | "scrollTo"> = { scrollToEnd, scrollTo };
+      Object.assign(api.scrollRef, { current: scrollable });
+      return null;
+    }
+
+    act(() => {
+      root.render(<Probe enabled />);
+    });
+    if (!api) {
+      throw new Error("Expected follow-output scroll hook");
+    }
+    const follow = api;
+
+    act(() => {
+      follow.onScroll(scrollEvent(400));
+      follow.onScroll(scrollEvent(280));
+    });
+    scrollToEnd.mockClear();
+    scrollTo.mockClear();
+
+    act(() => {
+      root.render(<Probe enabled={false} />);
+    });
+    expect(scrollToEnd).not.toHaveBeenCalled();
+    expect(scrollTo).toHaveBeenCalledWith({ y: 280, animated: false });
   });
 });
