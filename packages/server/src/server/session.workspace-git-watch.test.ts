@@ -658,6 +658,7 @@ describe("workspace git watch targets", () => {
         isMerged: false,
         mergeable: "UNKNOWN",
         isDraft: false,
+        isInMergeQueue: false,
         checks: [
           {
             name: "test",
@@ -756,6 +757,7 @@ describe("workspace git watch targets", () => {
         isMerged: true,
         mergeable: "UNKNOWN",
         isDraft: false,
+        isInMergeQueue: false,
         checks: [],
         checksStatus: undefined,
         reviewDecision: undefined,

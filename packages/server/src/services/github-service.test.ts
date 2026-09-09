@@ -3196,6 +3196,7 @@ describe("ForgeService", () => {
         },
       ],
       checksStatus: "pending",
+      isInMergeQueue: false,
       forgeSpecific: {
         forge: "github",
         mergeStateStatus: "BLOCKED",
@@ -3214,6 +3215,44 @@ describe("ForgeService", () => {
         isMergeQueueEnabled: false,
         isInMergeQueue: false,
       },
+    });
+  });
+
+  it("surfaces merge-queue membership on current PR status", async () => {
+    const runner = createScriptedRunner([
+      currentPullRequestJson({
+        number: 42,
+        url: "https://github.com/getpaseo/paseo/pull/42",
+        title: "Queued change",
+        headRefName: "feat/queued",
+      }),
+      currentPullRequestGithubFactsJson({
+        pullRequest: {
+          mergeStateStatus: "CLEAN",
+          autoMergeRequest: null,
+          viewerCanEnableAutoMerge: false,
+          viewerCanDisableAutoMerge: false,
+          viewerCanMergeAsAdmin: false,
+          viewerCanUpdateBranch: true,
+          isMergeQueueEnabled: true,
+          isInMergeQueue: true,
+        },
+      }),
+    ]);
+    const service = createGitHubService({
+      runner: runner.runner,
+      resolveGhPath: async () => "/usr/bin/gh",
+      now: () => 100,
+    });
+
+    const status = await service.getCurrentPullRequestStatus({
+      cwd: "/repo",
+      headRef: "feat/queued",
+    });
+
+    expect(status).toMatchObject({
+      isInMergeQueue: true,
+      forgeSpecific: { isInMergeQueue: true, isMergeQueueEnabled: true },
     });
   });
 
@@ -3823,6 +3862,7 @@ describe("ForgeService", () => {
       headRefName: "feature",
       isMerged: false,
       isDraft: true,
+      isInMergeQueue: false,
       mergeable: "UNKNOWN",
       checks: [
         {
