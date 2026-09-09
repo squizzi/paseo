@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   isNewSidebarMotionItem,
   rememberSidebarMotionItem,
+  resolveSidebarItemMotionFrameStyle,
   seedSidebarItemMotionKeys,
   shouldCommitSidebarItemMotionHydration,
   shouldMeasureSidebarItemEnterOffscreen,
   shouldRestoreSidebarItemMotionAfterExit,
+  SIDEBAR_ITEM_MOTION_AUTO_HEIGHT,
   sidebarProjectMotionKey,
   sidebarWorkspaceMotionKey,
 } from "./item-motion";
@@ -189,5 +191,32 @@ describe("sidebar item motion keys", () => {
         hasMeasuredEnter: false,
       }),
     ).toBe(false);
+  });
+
+  it("releases a pixel height so later label growth can push the rows below it", () => {
+    expect(
+      resolveSidebarItemMotionFrameStyle({
+        height: 52,
+        opacity: 1,
+        offset: 0,
+      }),
+    ).toEqual({
+      height: 52,
+      opacity: 1,
+      overflow: "hidden",
+      transform: [{ translateY: 0 }],
+    });
+    expect(
+      resolveSidebarItemMotionFrameStyle({
+        height: SIDEBAR_ITEM_MOTION_AUTO_HEIGHT,
+        opacity: 1,
+        offset: 0,
+      }),
+    ).toEqual({
+      height: "auto",
+      opacity: 1,
+      overflow: "visible",
+      transform: [{ translateY: 0 }],
+    });
   });
 });
