@@ -1,7 +1,8 @@
-import { Fragment, useCallback, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, Text, View, type GestureResponderEvent } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import Animated, { Easing, FadeIn, FadeOut, LinearTransition } from "react-native-reanimated";
 import { ExternalLink, Folder, GitBranch, Globe } from "lucide-react-native";
 import {
   workspaceLabelKey,
@@ -16,6 +17,7 @@ import { openExternalUrl } from "@/utils/open-external-url";
 import { useSidebarMetaPreferences } from "@/components/sidebar/display-preferences/model";
 import type { Theme } from "@/styles/theme";
 import { PullRequestStateIcon } from "@/git/pull-request-state-icon";
+import { SIDEBAR_ITEM_MOTION_DURATION_MS } from "@/components/sidebar/item-motion";
 import { CheckIndicator } from "./check-indicator";
 import type { CheckSummary, CheckSummaryState } from "./check-summary";
 import { selectMetaRowItems, type MetaRowItem } from "./meta-items";
@@ -41,6 +43,15 @@ const ThemedGlobe = withUnistyles(Globe);
 
 /** Stable identity so a row without labels doesn't re-select its items on every render. */
 const EMPTY_LABELS: readonly WorkspaceLabelDefinition[] = [];
+
+/** Matches the sidebar's own row motion (see item-motion.ts) so content that arrives or
+ * changes underneath a workspace eases in and out the same way the row itself does. */
+const META_ROW_EASING = Easing.out(Easing.cubic);
+const metaRowFadeIn = FadeIn.duration(SIDEBAR_ITEM_MOTION_DURATION_MS).easing(META_ROW_EASING);
+const metaRowFadeOut = FadeOut.duration(SIDEBAR_ITEM_MOTION_DURATION_MS).easing(META_ROW_EASING);
+const metaRowLayout = LinearTransition.duration(SIDEBAR_ITEM_MOTION_DURATION_MS).easing(
+  META_ROW_EASING,
+);
 
 const foregroundMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 const mutedMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
@@ -87,17 +98,33 @@ export function WorkspaceMetaRow({
     checksDisplay,
   });
 
+  // An already-hydrated row shouldn't fade in on first paint — only content that
+  // arrives or changes after that, same rule the sidebar's own row motion follows.
+  const hasMountedRef = useRef(false);
+  useEffect(() => {
+    hasMountedRef.current = true;
+  }, []);
+
   if (items.length === 0) return null;
 
   return (
-    <View style={styles.row}>
+    <Animated.View
+      style={styles.row}
+      entering={hasMountedRef.current ? metaRowFadeIn : undefined}
+      exiting={metaRowFadeOut}
+    >
       {items.map((item, index) => (
         <Fragment key={item.kind}>
           {index > 0 ? <Text style={styles.separator}>·</Text> : null}
-          <MetaItemNode item={item} hostBadge={hostBadge} leading={index === 0} />
+          <MetaItemNode
+            item={item}
+            hostBadge={hostBadge}
+            leading={index === 0}
+            animateChanges={hasMountedRef.current}
+          />
         </Fragment>
       ))}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -105,11 +132,14 @@ function MetaItemNode({
   item,
   hostBadge,
   leading,
+  animateChanges,
 }: {
   item: MetaRowItem;
   hostBadge: HostBadgeModel | null;
   /** First on the line, so this item's ink sets the rail the title above it already uses. */
   leading: boolean;
+  /** Suppresses entering animation on the row's first paint — see `WorkspaceMetaRow`. */
+  animateChanges: boolean;
 }): ReactNode {
   if (item.kind === "branch") {
     return <IdentityItem kind="branch" name={item.name} />;
@@ -127,7 +157,7 @@ function MetaItemNode({
     return <ChecksItem summary={item.summary} label={item.label} />;
   }
   if (item.kind === "labels") {
-    return <LabelsItem labels={item.labels} leading={leading} />;
+    return <LabelsItem labels={item.labels} leading={leading} animateChanges={animateChanges} />;
   }
   return <ServiceItem summary={item.summary} />;
 }
@@ -162,16 +192,30 @@ function IdentityItem({ kind, name }: { kind: "branch" | "project"; name: string
 function LabelsItem({
   labels,
   leading,
+  animateChanges,
 }: {
   labels: readonly WorkspaceLabelDefinition[];
   leading: boolean;
+  animateChanges: boolean;
 }) {
   return (
-    <View style={[styles.labels, leading && styles.labelsLeading]}>
+    <Animated.View
+      style={[styles.labels, leading && styles.labelsLeading]}
+      entering={animateChanges ? metaRowFadeIn : undefined}
+      exiting={metaRowFadeOut}
+      layout={metaRowLayout}
+    >
       {labels.map((label) => (
-        <WorkspaceLabelChip key={workspaceLabelKey(label.name)} label={label} />
+        <Animated.View
+          key={workspaceLabelKey(label.name)}
+          entering={animateChanges ? metaRowFadeIn : undefined}
+          exiting={metaRowFadeOut}
+          layout={metaRowLayout}
+        >
+          <WorkspaceLabelChip label={label} />
+        </Animated.View>
       ))}
-    </View>
+    </Animated.View>
   );
 }
 

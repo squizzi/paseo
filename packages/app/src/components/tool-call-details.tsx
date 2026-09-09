@@ -26,6 +26,7 @@ import { HighlightedLines } from "./highlighted-content";
 import { DiffViewer } from "./diff-viewer";
 import { getCodeInsets } from "./code-insets";
 import { isWeb } from "@/constants/platform";
+import { ChatGrowthClip } from "@/agent-stream/chat-entry-motion";
 
 const ScrollView = isWeb ? RNScrollView : GHScrollView;
 
@@ -518,9 +519,15 @@ function ScrollablePlainTextSection({
         onContentSizeChange={onContentSizeChange}
         onScroll={onScroll}
       >
-        <Text selectable style={styles.plainText}>
-          {text}
-        </Text>
+        <ChatGrowthClip
+          enabled={followOutput}
+          style={styles.plainTextGrowthClip}
+          testID={followOutput ? "tool-call-detail-growth-clip" : undefined}
+        >
+          <Text selectable style={styles.plainText}>
+            {text}
+          </Text>
+        </ChatGrowthClip>
       </ScrollView>
     </View>
   );
@@ -936,6 +943,10 @@ const styles = StyleSheet.create((theme) => {
       color: theme.colors.foreground,
       lineHeight: 22,
       overflowWrap: "anywhere",
+    },
+    plainTextGrowthClip: {
+      alignSelf: "stretch",
+      width: "100%",
     },
     sectionTitle: {
       color: theme.colors.foregroundMuted,
