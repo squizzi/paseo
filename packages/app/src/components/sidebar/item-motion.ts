@@ -98,3 +98,34 @@ export function resolveSidebarItemMotionFrameStyle(input: {
     transform,
   };
 }
+
+export type SidebarItemMotionContentResize =
+  | { action: "ignore" }
+  | { action: "record"; height: number }
+  | { action: "ease"; from: number; to: number };
+
+/** Later growth has to ease: auto height jumps the hover fill while chips are still arriving. */
+export function resolveSidebarItemMotionContentResize(input: {
+  nextHeight: number;
+  previousHeight: number;
+  entering: boolean;
+  exiting: boolean;
+  measureOffscreen: boolean;
+}): SidebarItemMotionContentResize {
+  if (input.nextHeight <= 0) {
+    return { action: "ignore" };
+  }
+  if (input.measureOffscreen || input.entering || input.exiting) {
+    if (input.nextHeight < input.previousHeight) {
+      return { action: "ignore" };
+    }
+    return { action: "record", height: input.nextHeight };
+  }
+  if (Math.abs(input.nextHeight - input.previousHeight) <= 0.5) {
+    return { action: "ignore" };
+  }
+  if (input.previousHeight <= 0) {
+    return { action: "record", height: input.nextHeight };
+  }
+  return { action: "ease", from: input.previousHeight, to: input.nextHeight };
+}

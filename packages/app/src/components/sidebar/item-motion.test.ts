@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isNewSidebarMotionItem,
   rememberSidebarMotionItem,
+  resolveSidebarItemMotionContentResize,
   resolveSidebarItemMotionFrameStyle,
   seedSidebarItemMotionKeys,
   shouldCommitSidebarItemMotionHydration,
@@ -218,5 +219,56 @@ describe("sidebar item motion keys", () => {
       overflow: "visible",
       transform: [{ translateY: 0 }],
     });
+  });
+
+  it("eases settled rows when labels grow or shrink the hover fill", () => {
+    expect(
+      resolveSidebarItemMotionContentResize({
+        nextHeight: 56,
+        previousHeight: 36,
+        entering: false,
+        exiting: false,
+        measureOffscreen: false,
+      }),
+    ).toEqual({ action: "ease", from: 36, to: 56 });
+    expect(
+      resolveSidebarItemMotionContentResize({
+        nextHeight: 36,
+        previousHeight: 56,
+        entering: false,
+        exiting: false,
+        measureOffscreen: false,
+      }),
+    ).toEqual({ action: "ease", from: 56, to: 36 });
+  });
+
+  it("records first layout and enter/exit measurements without easing them", () => {
+    expect(
+      resolveSidebarItemMotionContentResize({
+        nextHeight: 36,
+        previousHeight: 0,
+        entering: false,
+        exiting: false,
+        measureOffscreen: false,
+      }),
+    ).toEqual({ action: "record", height: 36 });
+    expect(
+      resolveSidebarItemMotionContentResize({
+        nextHeight: 40,
+        previousHeight: 36,
+        entering: true,
+        exiting: false,
+        measureOffscreen: false,
+      }),
+    ).toEqual({ action: "record", height: 40 });
+    expect(
+      resolveSidebarItemMotionContentResize({
+        nextHeight: 36,
+        previousHeight: 36.2,
+        entering: false,
+        exiting: false,
+        measureOffscreen: false,
+      }),
+    ).toEqual({ action: "ignore" });
   });
 });
