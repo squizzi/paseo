@@ -157,6 +157,7 @@ import { useHostBadges } from "@/hosts/use-host-badges";
 import { useSidebarRowItems } from "@/components/sidebar/display-preferences/model";
 import { PullRequestStateIcon } from "@/git/pull-request-state-icon";
 import Animated, {
+  cancelAnimation,
   Easing,
   ReduceMotion,
   useAnimatedStyle,
@@ -170,6 +171,7 @@ import {
   SIDEBAR_ITEM_MOTION_OFFSET,
   isNewSidebarMotionItem,
   rememberSidebarMotionItem,
+  resolveSidebarItemMotionContentResize,
   resolveSidebarItemMotionFrameStyle,
   seedSidebarItemMotionKeys,
   shouldMeasureSidebarItemEnterOffscreen,
@@ -287,17 +289,41 @@ function useSidebarItemMotion(input: { entering: boolean; exiting: boolean }) {
   const handleLayout = useCallback(
     (event: LayoutChangeEvent) => {
       const nextHeight = event.nativeEvent.layout.height;
-      if (nextHeight <= 0) {
-        return;
-      }
-      if (nextHeight >= measuredHeight.current) {
-        measuredHeight.current = nextHeight;
-      }
-      if (measureOffscreen) {
+      const decision = resolveSidebarItemMotionContentResize({
+        nextHeight,
+        previousHeight: measuredHeight.current,
+        entering: input.entering,
+        exiting: input.exiting,
+        measureOffscreen,
+      });
+      if (measureOffscreen && nextHeight > 0) {
         setHasMeasuredEnter(true);
       }
+      if (decision.action === "ignore") {
+        return;
+      }
+      if (decision.action === "record") {
+        measuredHeight.current = decision.height;
+        return;
+      }
+      measuredHeight.current = decision.to;
+      cancelAnimation(height);
+      height.value = decision.from;
+      height.value = withTiming(
+        decision.to,
+        {
+          duration: SIDEBAR_ITEM_MOTION_DURATION_MS,
+          easing: Easing.out(Easing.cubic),
+          reduceMotion: ReduceMotion.System,
+        },
+        (finished) => {
+          if (finished) {
+            height.value = SIDEBAR_ITEM_MOTION_AUTO_HEIGHT;
+          }
+        },
+      );
     },
-    [measureOffscreen],
+    [height, input.entering, input.exiting, measureOffscreen],
   );
 
   useLayoutEffect(() => {
@@ -394,6 +420,7 @@ function SidebarItemMotionView({
     <Animated.View
       role={role}
       accessibilityLabel={accessibilityLabel}
+      testID="sidebar-item-motion-frame"
       style={[styles.itemMotionFrame, motion.style]}
     >
       <View

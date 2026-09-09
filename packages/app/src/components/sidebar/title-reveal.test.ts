@@ -23,14 +23,29 @@ describe("retargetTitleReveal", () => {
   it("retypes a renamed title from the first character", () => {
     const state = retargetTitleReveal(beginTextReveal("Investigate search"), "Fix pagination");
     expect(visibleRevealedText(state)).toBe("");
+    expect(isTextRevealSettled(state)).toBe(false);
   });
 
-  it("keeps a shared prefix and streams only the renamed tail", () => {
+  it("retypes from the start even when the new name keeps the old prefix", () => {
     const state = retargetTitleReveal(beginTextReveal("Investigate search"), "Investigate bugs");
-    expect(visibleRevealedText(state)).toBe("Investigate ");
+    expect(visibleRevealedText(state)).toBe("");
+    expect(isTextRevealSettled(state)).toBe(false);
   });
 
-  it("paces the renamed tail instead of painting it whole", () => {
+  it("retypes when the new name is a prefix of the old one", () => {
+    const state = retargetTitleReveal(beginTextReveal("Investigate search"), "Investigate");
+    expect(visibleRevealedText(state)).toBe("");
+    expect(isTextRevealSettled(state)).toBe(false);
+  });
+
+  it("replays the same displayed string when a rename did not change it", () => {
+    const state = retargetTitleReveal(beginTextReveal("main"), "main", true);
+    expect(visibleRevealedText(state)).toBe("");
+    expect(state.target).toBe("main");
+    expect(isTextRevealSettled(state)).toBe(false);
+  });
+
+  it("paces the renamed title instead of painting it whole", () => {
     const full = "Brand new workspace title";
     let state = retargetTitleReveal(beginTextReveal("Old"), full);
     expect(visibleRevealedText(state)).toBe("");

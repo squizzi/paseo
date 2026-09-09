@@ -231,6 +231,69 @@ test.describe("Workspace labels", () => {
     }
   });
 
+  test("eases the hovered row fill when a label grows the row", async ({ page }) => {
+    const seeded = await seedWorkspace({
+      git: false,
+      repoPrefix: "workspace-labels-hover-bg-",
+      title: "Labelled",
+    });
+    try {
+      await gotoAppShell(page);
+      await waitForSidebarHydration(page);
+
+      const row = page.getByTestId(`sidebar-workspace-row-${getServerId()}:${seeded.workspaceId}`);
+      await expect(row).toBeVisible({ timeout: 30_000 });
+      await row.hover();
+
+      await row.evaluate((rowNode) => {
+        const samples: Array<{ clipHeight: number; contentHeight: number }> = [];
+        const startedAt = performance.now();
+        const sample = () => {
+          const clip = rowNode.closest<HTMLElement>('[data-testid="sidebar-item-motion-frame"]');
+          if (clip instanceof HTMLElement && rowNode instanceof HTMLElement) {
+            samples.push({
+              clipHeight: clip.getBoundingClientRect().height,
+              contentHeight: rowNode.getBoundingClientRect().height,
+            });
+          }
+          if (performance.now() - startedAt < 600) {
+            requestAnimationFrame(sample);
+            return;
+          }
+          Reflect.set(globalThis, "__workspaceLabelHoverBgSamples", samples);
+        };
+        requestAnimationFrame(sample);
+      });
+
+      await seeded.client.setWorkspaceLabel({
+        workspaceId: seeded.workspaceId,
+        label: { name: "Urgent", color: "red" },
+        assigned: true,
+      });
+      await expect(row.getByTestId("workspace-label-chip-Urgent")).toBeVisible();
+      await page.waitForTimeout(700);
+
+      const samples = await page.evaluate(
+        () =>
+          Reflect.get(globalThis, "__workspaceLabelHoverBgSamples") as Array<{
+            clipHeight: number;
+            contentHeight: number;
+          }>,
+      );
+      const clippingSummary = {
+        count: samples.length,
+        clipping: samples.filter((sample) => sample.contentHeight - sample.clipHeight > 2).length,
+        maxGap: Math.max(0, ...samples.map((sample) => sample.contentHeight - sample.clipHeight)),
+      };
+      expect(
+        clippingSummary.clipping,
+        `expected the hover fill to stay clipped while the row height catches up, received ${JSON.stringify(clippingSummary)}`,
+      ).toBeGreaterThan(2);
+    } finally {
+      await seeded.cleanup();
+    }
+  });
+
   test("creates, multi-assigns, filters, groups, and edits against the daemon", async ({
     page,
   }) => {
