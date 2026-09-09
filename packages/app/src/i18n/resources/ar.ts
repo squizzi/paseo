@@ -983,6 +983,7 @@ export const ar: TranslationResources = {
           checks: "الشيكات",
           pipeline: "خط المعالجة",
           reviews: "التعليقات",
+          activity: "النشاط",
         },
         empty: {
           noJobs: "لا توجد مهام",
@@ -1016,6 +1017,10 @@ export const ar: TranslationResources = {
           approved: "موافقة",
           requestedChanges: "التغييرات المطلوبة",
           reviewed: "تمت المراجعة",
+          sortOldest: "الأقدم أولاً",
+          sortNewest: "الأحدث",
+          sortOldestAccessible: "ترتيب النشاط من الأقدم أولاً",
+          sortNewestAccessible: "ترتيب النشاط من الأحدث أولاً",
         },
         time: {
           justNow: "الآن",
