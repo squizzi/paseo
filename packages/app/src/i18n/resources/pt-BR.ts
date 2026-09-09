@@ -994,6 +994,7 @@ export const ptBR: TranslationResources = {
         },
         states: {
           draft: "Rascunho",
+          queued: "Na fila",
           merged: "Mergeada",
           closed: "Fechada",
           open: "Aberta",

@@ -6,10 +6,6 @@ import {
   CircleX,
   Copy,
   ExternalLink,
-  GitMerge,
-  GitPullRequest,
-  GitPullRequestClosed,
-  GitPullRequestDraft,
   MessageSquare,
   MessageSquarePlus,
   MoreHorizontal,
@@ -66,6 +62,7 @@ import { ChecksSection, getCheckIdentity } from "./checks-section";
 import { getActivityVerb, getStateLabel } from "./data";
 import type { PrPaneActivity, PrPaneCheck, PrPaneData, PrState } from "./data";
 import type { ForgeSpecificStatusFacts } from "@/git/merge-capability";
+import { PullRequestStateIcon } from "@/git/pull-request-state-icon";
 import { CheckPresentationIcon } from "@/git/check-presentation.view";
 import {
   buildPrTimeline,
@@ -86,10 +83,6 @@ const ThemedCircleCheck = withUnistyles(CircleCheck);
 const ThemedCircleX = withUnistyles(CircleX);
 const ThemedCopy = withUnistyles(Copy);
 const ThemedExternalLink = withUnistyles(ExternalLink);
-const ThemedGitMerge = withUnistyles(GitMerge);
-const ThemedGitPullRequest = withUnistyles(GitPullRequest);
-const ThemedGitPullRequestClosed = withUnistyles(GitPullRequestClosed);
-const ThemedGitPullRequestDraft = withUnistyles(GitPullRequestDraft);
 const ThemedMessageSquare = withUnistyles(MessageSquare);
 const ThemedMessageSquarePlus = withUnistyles(MessageSquarePlus);
 const ThemedMoreHorizontal = withUnistyles(MoreHorizontal);
@@ -97,7 +90,6 @@ const ThemedRotateCw = withUnistyles(RotateCw);
 const ThemedLoadingSpinner = withUnistyles(LoadingSpinner);
 
 const foregroundColorMapping = (theme: Theme) => ({ color: theme.colors.foreground });
-const mergedColorMapping = (theme: Theme) => ({ color: theme.colors.statusMerged });
 
 const CLIENT_PANE_CONTRIBUTIONS: readonly PaneNativeContribution[] =
   CLIENT_FORGE_VIEW_MODULES.flatMap((module) => module.paneContributions ?? []);
@@ -110,20 +102,6 @@ function resolvePaneContribution(
   }
   return CLIENT_PANE_CONTRIBUTIONS.find((contribution) => contribution.guard(facts)) ?? null;
 }
-
-type IconColorMapping = typeof foregroundColorMapping;
-
-interface PrStatePresentation {
-  Icon: typeof ThemedGitPullRequest;
-  iconColor: IconColorMapping;
-}
-
-const PR_STATE_PRESENTATION: Record<PrState, PrStatePresentation> = {
-  open: { Icon: ThemedGitPullRequest, iconColor: successColorMapping },
-  draft: { Icon: ThemedGitPullRequestDraft, iconColor: foregroundMutedColorMapping },
-  merged: { Icon: ThemedGitMerge, iconColor: mergedColorMapping },
-  closed: { Icon: ThemedGitPullRequestClosed, iconColor: dangerColorMapping },
-};
 
 const SUMMARY_COMMENT_ICON = (
   <ThemedMessageSquare size={11} uniProps={foregroundMutedColorMapping} />
@@ -452,8 +430,6 @@ export function PullRequestPane({
     [data.number],
   );
 
-  const statePresentation = PR_STATE_PRESENTATION[data.state];
-  const StateIcon = statePresentation.Icon;
   const forgePresentation = getForgePresentation(data.forge);
   const repoIdentity =
     data.projectPath ??
@@ -536,7 +512,7 @@ export function PullRequestPane({
                 </Text>
               </Text>
               <View style={styles.metaLine}>
-                <StateIcon size={14} uniProps={statePresentation.iconColor} />
+                <PullRequestStateIcon state={data.state} size={14} />
                 <Text style={stateLabelStyle(data.state)} testID="pr-pane-state">
                   {getStateLabel(data.state)}
                 </Text>
@@ -624,6 +600,7 @@ export function PullRequestPane({
 function stateLabelStyle(state: PrState) {
   if (state === "open") return styles.stateLabelOpen;
   if (state === "draft") return styles.stateLabelDraft;
+  if (state === "queued") return styles.stateLabelQueued;
   if (state === "merged") return styles.stateLabelMerged;
   return styles.stateLabelClosed;
 }
@@ -1230,6 +1207,11 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.normal,
     color: theme.colors.foregroundMuted,
+  },
+  stateLabelQueued: {
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.normal,
+    color: theme.colors.statusWarning,
   },
   stateLabelMerged: {
     fontSize: theme.fontSize.sm,

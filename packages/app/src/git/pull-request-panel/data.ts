@@ -4,6 +4,10 @@ import type {
 } from "@getpaseo/protocol/messages";
 import { type Forge, getForgePresentation } from "@/git/forge";
 import type { PresentableCheck } from "@/git/check-presentation";
+import {
+  derivePullRequestPresentationState,
+  type PullRequestPresentationState,
+} from "@/git/pr-hint";
 import { parseClientForgeFacts } from "@/git/forges";
 import type { ForgeSpecificStatusFacts } from "@/git/merge-capability";
 import { deriveIdentityColorName, identityColor } from "@/styles/identity-colors";
@@ -12,7 +16,7 @@ import { getNativeFallbackChecks } from "./native-data";
 
 export type { CheckStatus } from "./check-status";
 
-export type PrState = "open" | "draft" | "merged" | "closed";
+export type PrState = PullRequestPresentationState;
 export type ReviewState = "approved" | "changes_requested" | "commented";
 export type ActivityKind = "review" | "comment";
 export type PullRequestProvider = Forge;
@@ -191,16 +195,7 @@ export function formatAge(createdAtMs: number, nowMs = Date.now()): string {
 }
 
 function derivePrState(status: NonNullable<CheckoutPrStatus>): PrState {
-  if (status.isMerged || status.state === "merged") {
-    return "merged";
-  }
-  if (status.state !== "open") {
-    return "closed";
-  }
-  if (status.isDraft) {
-    return "draft";
-  }
-  return "open";
+  return derivePullRequestPresentationState(status);
 }
 
 function mapChecks(status: NonNullable<CheckoutPrStatus>, forge: Forge): PrPaneCheck[] {
@@ -320,6 +315,7 @@ function parsePullRequestNumber(url: string): number | null {
 
 export function getStateLabel(state: PrState): string {
   if (state === "draft") return "Draft";
+  if (state === "queued") return "Queued";
   if (state === "merged") return "Merged";
   if (state === "closed") return "Closed";
   return "Open";

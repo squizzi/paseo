@@ -46,6 +46,7 @@ describe("checkout PR schemas", () => {
       headRefName: "feature/ship-it",
       isMerged: false,
       isDraft: false,
+      isInMergeQueue: false,
       mergeable: "UNKNOWN" as const,
       checks,
     };
@@ -65,6 +66,33 @@ describe("checkout PR schemas", () => {
     });
 
     expect(parsed.forge).toBe("someforge");
+  });
+
+  test("defaults missing merge-queue membership for old daemon payloads", () => {
+    const parsed = CheckoutPrStatusSchema.parse({
+      url: "https://github.com/getpaseo/paseo/pull/42",
+      title: "Ship it",
+      state: "open",
+      baseRefName: "main",
+      headRefName: "feature/ship-it",
+      isMerged: false,
+    });
+
+    expect(parsed.isInMergeQueue).toBe(false);
+  });
+
+  test("round-trips merge-queue membership", () => {
+    const parsed = CheckoutPrStatusSchema.parse({
+      url: "https://github.com/getpaseo/paseo/pull/42",
+      title: "Ship it",
+      state: "open",
+      baseRefName: "main",
+      headRefName: "feature/ship-it",
+      isMerged: false,
+      isInMergeQueue: true,
+    });
+
+    expect(parsed.isInMergeQueue).toBe(true);
   });
 
   test("parses PR status payloads without mergeability", () => {

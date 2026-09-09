@@ -163,6 +163,7 @@ export interface WorkspaceGitRuntimeSnapshot {
       headRefName: string;
       isMerged: boolean;
       isDraft?: boolean;
+      isInMergeQueue?: boolean;
       mergeable?: PullRequestMergeable;
       checks?: PullRequestCheck[];
       checksStatus?: "none" | "pending" | "success" | "failure";
