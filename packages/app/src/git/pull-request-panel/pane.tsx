@@ -2,6 +2,8 @@ import { useCallback, useMemo, useState } from "react";
 import { Image, Pressable, ScrollView, Text, View, type ViewStyle } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import {
+  ArrowDown,
+  ArrowUp,
   CircleCheck,
   CircleX,
   Copy,
@@ -47,12 +49,14 @@ import { getForgePresentation } from "@/git/forge";
 import { CLIENT_FORGE_VIEW_MODULES } from "@/git/forges/view";
 import type { PaneNativeContribution } from "@/git/client-forge-module";
 import { PrActivitySkeleton } from "./activity-skeleton";
+import { usePullRequestActivitySortStore } from "./activity-sort-store";
 import {
   collapseActivity,
   expandActivity,
   getActivityState,
   getCollapsedEntryIds,
   getVisibleEntries,
+  type PullRequestActivitySort,
 } from "./activity-state";
 import { formatPullRequestThreadPath } from "./activity-location";
 import {
@@ -224,6 +228,8 @@ export function PullRequestPane({
   const [checksOpen, setChecksOpen] = useState(true);
   const [activityOpen, setActivityOpen] = useState(true);
   const [activityState, setActivityState] = useState(getActivityState);
+  const activitySort = usePullRequestActivitySortStore((state) => state.sort);
+  const setActivitySort = usePullRequestActivitySortStore((state) => state.setSort);
   const [loadingCheckKeys, setLoadingCheckKeys] = useState<ReadonlySet<string>>(() => new Set());
 
   const handleOpenPrUrl = useCallback(() => {
@@ -256,6 +262,14 @@ export function PullRequestPane({
     setActivityOpen((open) => !open);
   }, []);
 
+  const handleToggleActivitySort = useCallback(() => {
+    setActivitySort(activitySort === "newest" ? "oldest" : "newest");
+  }, [activitySort, setActivitySort]);
+  const activitySortButton = useMemo(
+    () => <ActivitySortButton sort={activitySort} onPress={handleToggleActivitySort} />,
+    [activitySort, handleToggleActivitySort],
+  );
+
   const approvals = data.activity.filter(
     (item) => item.kind === "review" && item.reviewState === "approved",
   ).length;
@@ -273,8 +287,9 @@ export function PullRequestPane({
       getVisibleEntries(activityState, {
         prNumber: data.number,
         entries: timelineEntries,
+        sort: activitySort,
       }),
-    [activityState, data.number, timelineEntries],
+    [activitySort, activityState, data.number, timelineEntries],
   );
   const collapsedEntryIds = useMemo(
     () => getCollapsedEntryIds(activityState, { prNumber: data.number, entries: timelineEntries }),
@@ -568,9 +583,10 @@ export function PullRequestPane({
         <View style={styles.divider} />
 
         <Section
-          title="Activity"
+          title={t("workspace.git.pr.sections.activity")}
           open={activityOpen}
           onToggle={handleToggleActivity}
+          titleAccessory={activitySortButton}
           summary={
             <>
               <SummaryPill count={approvals} icon={SUMMARY_APPROVAL_ICON} variant="success" />
@@ -626,6 +642,37 @@ function stateLabelStyle(state: PrState) {
   if (state === "draft") return styles.stateLabelDraft;
   if (state === "merged") return styles.stateLabelMerged;
   return styles.stateLabelClosed;
+}
+
+function ActivitySortButton({
+  sort,
+  onPress,
+}: {
+  sort: PullRequestActivitySort;
+  onPress: () => void;
+}) {
+  const { t } = useTranslation();
+  const newestFirst = sort === "newest";
+  const icon = newestFirst ? ArrowUp : ArrowDown;
+  const label = newestFirst
+    ? t("workspace.git.pr.activity.sortNewest")
+    : t("workspace.git.pr.activity.sortOldest");
+  const accessibilityLabel = newestFirst
+    ? t("workspace.git.pr.activity.sortNewestAccessible")
+    : t("workspace.git.pr.activity.sortOldestAccessible");
+  return (
+    <Button
+      variant="ghost"
+      size="xs"
+      leftIcon={icon}
+      onPress={onPress}
+      accessibilityLabel={accessibilityLabel}
+      testID="pr-pane-activity-sort"
+      style={styles.activitySortButton}
+    >
+      {label}
+    </Button>
+  );
 }
 
 interface TimelineEntryCallbacks {
@@ -1293,6 +1340,9 @@ const styles = StyleSheet.create((theme) => ({
     minHeight: 28,
     paddingRight: theme.spacing[3],
     paddingBottom: theme.spacing[2],
+  },
+  activitySortButton: {
+    flexShrink: 0,
   },
   toolbarTrailing: {
     marginLeft: "auto",
