@@ -40,4 +40,33 @@ describe("selectPrHintFromStatus", () => {
       selectPrHintFromStatus({ url: "https://example.com/x", state: "open", isMerged: false }),
     ).toBeNull();
   });
+
+  it("maps an open PR in the merge queue to queued", () => {
+    expect(
+      selectPrHintFromStatus({
+        ...githubStatus,
+        isInMergeQueue: true,
+      })?.state,
+    ).toBe("queued");
+  });
+
+  it("maps GitHub facts merge-queue membership to queued when the top-level flag is absent", () => {
+    expect(
+      selectPrHintFromStatus({
+        ...githubStatus,
+        github: { isInMergeQueue: true },
+      })?.state,
+    ).toBe("queued");
+  });
+
+  it("keeps merged ahead of merge-queue membership", () => {
+    expect(
+      selectPrHintFromStatus({
+        url: "https://github.com/acme/repo/pull/42",
+        state: "merged",
+        isMerged: true,
+        isInMergeQueue: true,
+      })?.state,
+    ).toBe("merged");
+  });
 });

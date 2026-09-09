@@ -1,10 +1,12 @@
 import { normalizeForge, type Forge } from "@/git/forge";
 import type { PresentableCheck } from "@/git/check-presentation";
 
+export type PullRequestPresentationState = "open" | "draft" | "queued" | "merged" | "closed";
+
 export interface PrHint {
   url: string;
   number: number;
-  state: "open" | "merged" | "closed";
+  state: Exclude<PullRequestPresentationState, "draft">;
   /** Forge backing this change request, so badges render the right brand mark. */
   forge: Forge;
   checks?: PrHintCheck[];
@@ -21,10 +23,14 @@ interface PrStatusLike {
   url: string;
   state: string;
   isMerged: boolean;
+  isDraft?: boolean;
+  isInMergeQueue?: boolean;
   checks?: PrHintCheck[];
   checksStatus?: string;
   reviewDecision?: string | null;
   forge?: string;
+  forgeSpecific?: unknown;
+  github?: unknown;
 }
 
 function parsePullRequestNumber(url: string): number | null {
@@ -44,6 +50,48 @@ function parsePullRequestNumber(url: string): number | null {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function readIsInMergeQueue(status: {
+  isInMergeQueue?: boolean;
+  forgeSpecific?: unknown;
+  github?: unknown;
+}): boolean {
+  if (status.isInMergeQueue === true) {
+    return true;
+  }
+  if (isRecord(status.forgeSpecific) && status.forgeSpecific.isInMergeQueue === true) {
+    return true;
+  }
+  return isRecord(status.github) && status.github.isInMergeQueue === true;
+}
+
+/** Shared open/draft/queued/merged/closed mapping for every PR status surface. */
+export function derivePullRequestPresentationState(status: {
+  state: string;
+  isMerged: boolean;
+  isDraft?: boolean;
+  isInMergeQueue?: boolean;
+  forgeSpecific?: unknown;
+  github?: unknown;
+}): PullRequestPresentationState {
+  if (status.isMerged || status.state === "merged") {
+    return "merged";
+  }
+  if (status.state !== "open") {
+    return "closed";
+  }
+  if (readIsInMergeQueue(status)) {
+    return "queued";
+  }
+  if (status.isDraft) {
+    return "draft";
+  }
+  return "open";
+}
+
 export function selectPrHintFromStatus(
   status: PrStatusLike | null | undefined,
   forge?: string | null,
@@ -57,10 +105,8 @@ export function selectPrHintFromStatus(
     return null;
   }
 
-  let state: "merged" | "open" | "closed";
-  if (status.isMerged || status.state === "merged") state = "merged";
-  else if (status.state === "open") state = "open";
-  else state = "closed";
+  const presentation = derivePullRequestPresentationState(status);
+  const state = presentation === "draft" ? "open" : presentation;
 
   return {
     url: status.url,

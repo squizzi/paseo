@@ -1079,6 +1079,7 @@ export const fr: TranslationResources = {
         },
         states: {
           draft: "Brouillon",
+          queued: "En file",
           merged: "Fusionnée",
           closed: "Fermée",
           open: "Ouverte",

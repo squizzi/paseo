@@ -3959,6 +3959,7 @@ export const WorkspaceGitHubRuntimePayloadSchema = z
         headRefName: z.string(),
         isMerged: z.boolean(),
         isDraft: z.boolean().optional(),
+        isInMergeQueue: z.boolean().optional(),
         mergeable: z.enum(["MERGEABLE", "CONFLICTING", "UNKNOWN"]).catch("UNKNOWN").optional(),
         checks: z
           .array(
@@ -5308,6 +5309,7 @@ export const CheckoutPrStatusSchema = z.object({
   headRefName: z.string(),
   isMerged: z.boolean(),
   isDraft: z.boolean().optional().default(false),
+  isInMergeQueue: z.boolean().optional().default(false),
   mergeable: z
     .enum(["MERGEABLE", "CONFLICTING", "UNKNOWN"])
     .catch("UNKNOWN")

@@ -1047,6 +1047,7 @@ export const zhCN: TranslationResources = {
         },
         states: {
           draft: "草稿",
+          queued: "排队中",
           merged: "已合并",
           closed: "已关闭",
           open: "开放",

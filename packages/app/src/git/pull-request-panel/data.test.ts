@@ -50,6 +50,7 @@ const baseStatus: CheckoutPrStatus = {
   headRefName: "feature/pr-pane",
   isMerged: false,
   isDraft: false,
+  isInMergeQueue: false,
   mergeable: "UNKNOWN",
   checks: [],
   reviewDecision: null,
@@ -112,6 +113,38 @@ describe("mapPrPaneData", () => {
     expect(mapPrPaneData(status({ isDraft: false, state: "open" }), baseTimeline)?.state).toBe(
       "open",
     );
+    expect(
+      mapPrPaneData(status({ isInMergeQueue: true, state: "open" }), baseTimeline)?.state,
+    ).toBe("queued");
+    expect(
+      mapPrPaneData(
+        status({
+          isDraft: true,
+          isInMergeQueue: true,
+          state: "open",
+        }),
+        baseTimeline,
+      )?.state,
+    ).toBe("queued");
+    expect(
+      mapPrPaneData(
+        status({
+          isMerged: true,
+          isInMergeQueue: true,
+          state: "closed",
+        }),
+        baseTimeline,
+      )?.state,
+    ).toBe("merged");
+    expect(
+      mapPrPaneData(
+        status({
+          github: { ...githubStatus, isInMergeQueue: true },
+          state: "open",
+        }),
+        baseTimeline,
+      )?.state,
+    ).toBe("queued");
   });
 
   it("keeps checks with null URLs by linking them to the pull request", () => {
@@ -787,6 +820,7 @@ describe("getStateLabelKey", () => {
   it.each([
     ["open", "Open", "Ouverte"],
     ["draft", "Draft", "Brouillon"],
+    ["queued", "Queued", "En file"],
     ["merged", "Merged", "Fusionnée"],
     ["closed", "Closed", "Fermée"],
   ] as const)("labels %s as %s, and %s in French", (state, englishLabel, frenchLabel) => {
