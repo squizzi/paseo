@@ -957,6 +957,7 @@ export const en = {
           checks: "Checks",
           pipeline: "Pipeline",
           reviews: "Reviews",
+          activity: "Activity",
         },
         empty: {
           noJobs: "No jobs",
@@ -990,6 +991,10 @@ export const en = {
           approved: "Approved",
           requestedChanges: "Requested changes",
           reviewed: "Reviewed",
+          sortOldest: "Oldest first",
+          sortNewest: "Most recent",
+          sortOldestAccessible: "Sort activity oldest first",
+          sortNewestAccessible: "Sort activity most recent first",
         },
         time: {
           justNow: "just now",

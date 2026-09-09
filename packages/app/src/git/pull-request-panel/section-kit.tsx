@@ -26,6 +26,7 @@ interface SectionProps {
   open: boolean;
   onToggle: () => void;
   summary: ReactNode;
+  titleAccessory?: ReactNode;
   children: ReactNode;
   accessibilityLabel?: string;
 }
@@ -35,24 +36,30 @@ export function Section({
   open,
   onToggle,
   summary,
+  titleAccessory,
   children,
   accessibilityLabel,
 }: SectionProps) {
   return (
     <View>
-      <Pressable
-        accessibilityLabel={accessibilityLabel}
-        style={sectionKitStyles.sectionHeader}
-        onPress={onToggle}
-      >
-        {open ? (
-          <ThemedChevronDown size={14} uniProps={foregroundMutedColorMapping} />
-        ) : (
-          <ThemedChevronRight size={14} uniProps={foregroundMutedColorMapping} />
-        )}
-        <Text style={sectionKitStyles.sectionTitle}>{title}</Text>
-        <View style={sectionKitStyles.summaryWrap}>{summary}</View>
-      </Pressable>
+      <View style={sectionKitStyles.sectionHeader}>
+        <Pressable
+          accessibilityLabel={accessibilityLabel}
+          style={sectionKitStyles.sectionToggle}
+          onPress={onToggle}
+        >
+          {open ? (
+            <ThemedChevronDown size={14} uniProps={foregroundMutedColorMapping} />
+          ) : (
+            <ThemedChevronRight size={14} uniProps={foregroundMutedColorMapping} />
+          )}
+          <Text style={sectionKitStyles.sectionTitle}>{title}</Text>
+        </Pressable>
+        {titleAccessory}
+        <Pressable style={sectionKitStyles.sectionTrailing} onPress={onToggle} accessible={false}>
+          {summary}
+        </Pressable>
+      </View>
       {open ? <View style={sectionKitStyles.sectionBody}>{children}</View> : null}
     </View>
   );
@@ -113,6 +120,20 @@ export const sectionKitStyles = StyleSheet.create((theme) => ({
     paddingHorizontal: theme.spacing[3],
     paddingVertical: theme.spacing[2],
   },
+  sectionToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    minHeight: CONTROL_HEIGHTS.tight,
+  },
+  sectionTrailing: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: theme.spacing[2],
+    minHeight: CONTROL_HEIGHTS.tight,
+  },
   sectionTitle: {
     fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.medium,
@@ -120,12 +141,6 @@ export const sectionKitStyles = StyleSheet.create((theme) => ({
   },
   sectionBody: {
     paddingBottom: theme.spacing[3],
-  },
-  summaryWrap: {
-    marginLeft: "auto",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
   },
   summaryPill: {
     flexDirection: "row",

@@ -979,6 +979,7 @@ export const es: TranslationResources = {
           checks: "cheques",
           pipeline: "Pipeline",
           reviews: "Reseñas",
+          activity: "Actividad",
         },
         empty: {
           noJobs: "Sin trabajos",
@@ -1012,6 +1013,10 @@ export const es: TranslationResources = {
           approved: "Aprobado",
           requestedChanges: "Cambios solicitados",
           reviewed: "Revisado",
+          sortOldest: "Más antiguas",
+          sortNewest: "Más recientes",
+          sortOldestAccessible: "Ordenar actividad de más antigua a más reciente",
+          sortNewestAccessible: "Ordenar actividad de más reciente a más antigua",
         },
         time: {
           justNow: "En este momento",

@@ -955,6 +955,7 @@ export const ko: TranslationResources = {
           checks: "검사",
           pipeline: "파이프라인",
           reviews: "리뷰",
+          activity: "활동",
         },
         empty: {
           noJobs: "작업 없음",
@@ -988,6 +989,10 @@ export const ko: TranslationResources = {
           approved: "승인됨",
           requestedChanges: "변경 요청됨",
           reviewed: "리뷰됨",
+          sortOldest: "오래된순",
+          sortNewest: "최신순",
+          sortOldestAccessible: "활동을 오래된순으로 정렬",
+          sortNewestAccessible: "활동을 최신순으로 정렬",
         },
         time: {
           justNow: "방금",

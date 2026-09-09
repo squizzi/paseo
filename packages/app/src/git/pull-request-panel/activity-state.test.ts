@@ -5,6 +5,7 @@ import {
   getActivityState,
   getCollapsedEntryIds,
   getVisibleEntries,
+  sortPullRequestActivityEntries,
 } from "./activity-state";
 import type { PrTimelineEntry } from "./timeline";
 import type { PrPaneActivity } from "./data";
@@ -149,5 +150,26 @@ describe("pull request activity state", () => {
     const collapsedIds = getCollapsedEntryIds(expanded, { prNumber: 42, entries });
 
     expect(collapsedIds.has("thread:thread-resolved")).toBe(false);
+  });
+
+  it("keeps chronological order by default and puts most recent first when asked", () => {
+    const entries = [singleEntry("older"), singleEntry("newer")];
+
+    expect(sortPullRequestActivityEntries(entries, "oldest").map((entry) => entry.id)).toEqual([
+      "older",
+      "newer",
+    ]);
+    expect(sortPullRequestActivityEntries(entries, "newest").map((entry) => entry.id)).toEqual([
+      "newer",
+      "older",
+    ]);
+    expect(
+      getVisibleEntries(getActivityState(), { prNumber: 42, entries }).map((item) => item.entry.id),
+    ).toEqual(["older", "newer"]);
+    expect(
+      getVisibleEntries(getActivityState(), { prNumber: 42, entries, sort: "newest" }).map(
+        (item) => item.entry.id,
+      ),
+    ).toEqual(["newer", "older"]);
   });
 });

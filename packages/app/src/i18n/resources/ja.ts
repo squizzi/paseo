@@ -959,6 +959,7 @@ export const ja: TranslationResources = {
           checks: "チェック",
           pipeline: "パイプライン",
           reviews: "レビュー",
+          activity: "アクティビティ",
         },
         empty: {
           noJobs: "ジョブなし",
@@ -992,6 +993,10 @@ export const ja: TranslationResources = {
           approved: "承認済み",
           requestedChanges: "変更をリクエスト",
           reviewed: "レビュー済み",
+          sortOldest: "古い順",
+          sortNewest: "新しい順",
+          sortOldestAccessible: "アクティビティを古い順に並べ替え",
+          sortNewestAccessible: "アクティビティを新しい順に並べ替え",
         },
         time: {
           justNow: "たった今",
