@@ -66,3 +66,35 @@ export function shouldRestoreSidebarItemMotionAfterExit(input: {
 }): boolean {
   return !input.exiting && input.didArmExit;
 }
+
+interface SidebarItemMotionFrameStyle {
+  height: number | "auto";
+  opacity: number;
+  overflow: "hidden" | "visible";
+  transform: [{ translateY: number }];
+}
+
+export function resolveSidebarItemMotionFrameStyle(input: {
+  height: number;
+  opacity: number;
+  offset: number;
+}): SidebarItemMotionFrameStyle {
+  "worklet";
+  const transform: [{ translateY: number }] = [{ translateY: input.offset }];
+  if (input.height >= 0) {
+    return {
+      height: input.height,
+      opacity: input.opacity,
+      overflow: "hidden",
+      transform,
+    };
+  }
+  // Reanimated keeps the last pixel height unless this property stays in the
+  // style object. Omitting it leaves labels painting over the row below.
+  return {
+    height: "auto",
+    opacity: input.opacity,
+    overflow: "visible",
+    transform,
+  };
+}

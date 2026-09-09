@@ -170,6 +170,7 @@ import {
   SIDEBAR_ITEM_MOTION_OFFSET,
   isNewSidebarMotionItem,
   rememberSidebarMotionItem,
+  resolveSidebarItemMotionFrameStyle,
   seedSidebarItemMotionKeys,
   shouldMeasureSidebarItemEnterOffscreen,
   shouldRestoreSidebarItemMotionAfterExit,
@@ -361,22 +362,13 @@ function useSidebarItemMotion(input: { entering: boolean; exiting: boolean }) {
     }
   }, [hasMeasuredEnter, height, input.entering, input.exiting, offset, opacity]);
 
-  const style = useAnimatedStyle(() => {
-    const nextHeight = height.value;
-    if (nextHeight >= 0) {
-      return {
-        height: nextHeight,
-        opacity: opacity.value,
-        overflow: "hidden",
-        transform: [{ translateY: offset.value }],
-      };
-    }
-    return {
+  const style = useAnimatedStyle(() =>
+    resolveSidebarItemMotionFrameStyle({
+      height: height.value,
       opacity: opacity.value,
-      overflow: "visible",
-      transform: [{ translateY: offset.value }],
-    };
-  });
+      offset: offset.value,
+    }),
+  );
 
   const measureStyle = measureOffscreen ? styles.itemMotionMeasureOffscreen : undefined;
 

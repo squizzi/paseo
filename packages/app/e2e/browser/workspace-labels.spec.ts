@@ -1,8 +1,9 @@
 import { expect, test } from "../support/fixtures";
 import { gotoAppShell } from "../support/helpers/app";
 import { getServerId } from "../support/helpers/server-id";
-import { seedWorkspace } from "../support/helpers/seed-client";
+import { seedWorkspace, createWorkspaceInProject } from "../support/helpers/seed-client";
 import { waitForSidebarHydration } from "../support/helpers/workspace-ui";
+import { createTempDirectory } from "../support/helpers/workspace";
 import { daemonWsRoutePattern } from "../support/helpers/daemon-port";
 
 interface SessionEnvelope {
@@ -177,6 +178,55 @@ test.describe("Workspace labels", () => {
         page.getByTestId(`sidebar-workspace-row-${getServerId()}:${seeded.workspaceId}`),
       ).toBeVisible();
     } finally {
+      await seeded.cleanup();
+    }
+  });
+
+  test("keeps a labelled workspace row from covering the row below it", async ({ page }) => {
+    const seeded = await seedWorkspace({
+      git: false,
+      repoPrefix: "workspace-labels-overlap-",
+      title: "Above",
+    });
+    const siblingDir = await createTempDirectory("workspace-labels-overlap-sibling-");
+    try {
+      const sibling = await createWorkspaceInProject({
+        client: seeded.client,
+        path: siblingDir.path,
+        projectId: seeded.projectId,
+        title: "Below",
+      });
+      await gotoAppShell(page);
+      await waitForSidebarHydration(page);
+
+      const above = page.getByTestId(
+        `sidebar-workspace-row-${getServerId()}:${seeded.workspaceId}`,
+      );
+      const below = page.getByTestId(`sidebar-workspace-row-${getServerId()}:${sibling.id}`);
+      await expect(above).toBeVisible({ timeout: 30_000 });
+      await expect(below).toBeVisible({ timeout: 30_000 });
+
+      await seeded.client.setWorkspaceLabel({
+        workspaceId: seeded.workspaceId,
+        label: { name: "Urgent", color: "red" },
+        assigned: true,
+      });
+      await expect(above.getByTestId("workspace-label-chip-Urgent")).toBeVisible();
+
+      await expect
+        .poll(async () => {
+          const [aboveBox, belowBox] = await Promise.all([
+            above.boundingBox(),
+            below.boundingBox(),
+          ]);
+          if (!aboveBox || !belowBox) {
+            return Number.POSITIVE_INFINITY;
+          }
+          return aboveBox.y + aboveBox.height - belowBox.y;
+        })
+        .toBeLessThanOrEqual(0.5);
+    } finally {
+      await siblingDir.cleanup().catch(() => undefined);
       await seeded.cleanup();
     }
   });
