@@ -1,5 +1,9 @@
 import { test, expect } from "../support/fixtures";
-import { awaitAssistantMessage, expectAgentIdle } from "../support/helpers/agent-stream";
+import {
+  awaitAssistantMessage,
+  awaitToolCall,
+  expectAgentIdle,
+} from "../support/helpers/agent-stream";
 import { startRunningMockAgent, submitMessage } from "../support/helpers/composer";
 
 test("keeps animated chat entries in the timeline layout", async ({ page }) => {
@@ -357,6 +361,69 @@ test("clips wrapped stream lines until they rise into the markdown block", async
     expect(
       clippingSummary.clipping,
       `expected wrapped lines to stay clipped while the block height catches up, received ${JSON.stringify(clippingSummary)}`,
+    ).toBeGreaterThan(2);
+  } finally {
+    await agent.cleanup();
+  }
+});
+
+test("clips wrapped thinking details until they rise into the pane", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("@paseo:app-settings", JSON.stringify({ autoExpandReasoning: true }));
+  });
+  const agent = await startRunningMockAgent(page, {
+    prefix: "thinking-detail-growth-clip-",
+    model: "e2e-fast-stream",
+    prompt: "First message before measuring thinking details.",
+  });
+  try {
+    await awaitAssistantMessage(page);
+    await expectAgentIdle(page);
+
+    await page.evaluate(() => {
+      const samples: Array<{ clipHeight: number; contentHeight: number }> = [];
+      const startedAt = performance.now();
+      const sample = () => {
+        const clips = Array.from(
+          document.querySelectorAll<HTMLElement>('[data-testid="tool-call-detail-growth-clip"]'),
+        );
+        const clip = clips.at(-1);
+        const inner = clip?.firstElementChild;
+        if (clip instanceof HTMLElement && inner instanceof HTMLElement) {
+          samples.push({
+            clipHeight: clip.getBoundingClientRect().height,
+            contentHeight: inner.getBoundingClientRect().height,
+          });
+        }
+        if (performance.now() - startedAt < 2_000) {
+          requestAnimationFrame(sample);
+          return;
+        }
+        Reflect.set(globalThis, "__toolCallDetailGrowthClipSamples", samples);
+      };
+      requestAnimationFrame(sample);
+    });
+
+    await submitMessage(page, "Measure thinking details as they grow.");
+    await awaitToolCall(page, "Thinking");
+    await expect(page.getByTestId("tool-call-detail-growth-clip")).toBeVisible({ timeout: 10_000 });
+    await page.waitForTimeout(2_100);
+
+    const samples = await page.evaluate(
+      () =>
+        Reflect.get(globalThis, "__toolCallDetailGrowthClipSamples") as Array<{
+          clipHeight: number;
+          contentHeight: number;
+        }>,
+    );
+    const clippingSummary = {
+      count: samples.length,
+      clipping: samples.filter((sample) => sample.contentHeight - sample.clipHeight > 2).length,
+      maxGap: Math.max(0, ...samples.map((sample) => sample.contentHeight - sample.clipHeight)),
+    };
+    expect(
+      clippingSummary.clipping,
+      `expected thinking details to stay clipped while the pane height catches up, received ${JSON.stringify(clippingSummary)}`,
     ).toBeGreaterThan(2);
   } finally {
     await agent.cleanup();

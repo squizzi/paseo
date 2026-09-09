@@ -2366,6 +2366,12 @@ interface ExpandableBadgeProps {
   renderDetails?: () => ReactNode;
   isLoading?: boolean;
   isError?: boolean;
+  /**
+   * While streaming details grow, ChatGrowthClip owns height. A layout
+   * transition on this badge would fight that ease the same way it does on
+   * assistant markdown blocks.
+   */
+  clipGrowth?: boolean;
   isLastInSequence?: boolean;
   disableOuterSpacing?: boolean;
   borderlessWhenExpanded?: boolean;
@@ -2732,6 +2738,7 @@ export const ExpandableBadge = memo(function ExpandableBadge({
   isLastInSequence = false,
   disableOuterSpacing,
   borderlessWhenExpanded = false,
+  clipGrowth = false,
   testID,
 }: ExpandableBadgeProps) {
   const resolvedDisableOuterSpacing = useDisableOuterSpacing(disableOuterSpacing);
@@ -2989,7 +2996,7 @@ export const ExpandableBadge = memo(function ExpandableBadge({
   return (
     <Animated.View
       style={containerStyle}
-      layout={chatLayoutTransition()}
+      layout={clipGrowth ? undefined : chatLayoutTransition()}
       testID={testID}
       onPointerEnter={isWeb ? handleHoverIn : undefined}
       onPointerLeave={isWeb ? handleHoverOut : undefined}
@@ -3054,6 +3061,7 @@ function areExpandableBadgePropsEqual(previous: ExpandableBadgeProps, next: Expa
   if (previous.isLastInSequence !== next.isLastInSequence) return false;
   if (previous.disableOuterSpacing !== next.disableOuterSpacing) return false;
   if (previous.borderlessWhenExpanded !== next.borderlessWhenExpanded) return false;
+  if (previous.clipGrowth !== next.clipGrowth) return false;
   if (previous.testID !== next.testID) return false;
   if (previous.onToggle !== next.onToggle) return false;
   if (previous.onOpenFile !== next.onOpenFile) return false;
@@ -3104,6 +3112,7 @@ export const ToolCall = memo(function ToolCall({
 
   const isMobile = useIsCompactFormFactor();
   const shouldRenderInline = !isMobile || forceInline;
+  const clipGrowth = status === "executing" || status === "running";
 
   const effectiveDetail = useMemo<ToolCallDetail | undefined>(() => {
     if (detail) {
@@ -3203,7 +3212,7 @@ export const ToolCall = memo(function ToolCall({
         errorText={presentation.errorText}
         maxHeight={maxDetailHeight}
         showLoadingSkeleton={presentation.isLoadingDetails}
-        followOutput={status === "executing" || status === "running"}
+        followOutput={clipGrowth}
       />
     );
   }, [
@@ -3213,7 +3222,7 @@ export const ToolCall = memo(function ToolCall({
     presentation.errorText,
     presentation.isLoadingDetails,
     maxDetailHeight,
-    status,
+    clipGrowth,
   ]);
 
   if (presentation.isPlan && effectiveDetail?.type === "plan") {
@@ -3238,6 +3247,7 @@ export const ToolCall = memo(function ToolCall({
       onOpenFile={handleOpenFile}
       renderDetails={presentation.canOpenDetails && shouldRenderInline ? renderDetails : undefined}
       isLoading={status === "running" || status === "executing"}
+      clipGrowth={clipGrowth}
       isError={status === "failed"}
       isLastInSequence={isLastInSequence}
       disableOuterSpacing={disableOuterSpacing}
