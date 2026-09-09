@@ -1097,6 +1097,10 @@ export const es: TranslationResources = {
           approved: "Aprobó",
           requestedChanges: "Solicitó cambios",
           reviewed: "Revisó",
+          sortOldest: "Más antiguas",
+          sortNewest: "Más recientes",
+          sortOldestAccessible: "Ordenar actividad de más antigua a más reciente",
+          sortNewestAccessible: "Ordenar actividad de más reciente a más antigua",
         },
         time: {
           justNow: "En este momento",

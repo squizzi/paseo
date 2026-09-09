@@ -1088,6 +1088,10 @@ export const fr: TranslationResources = {
           approved: "A approuvé",
           requestedChanges: "A demandé des modifications",
           reviewed: "A relu",
+          sortOldest: "Plus anciennes",
+          sortNewest: "Plus récentes",
+          sortOldestAccessible: "Trier l'activité des plus anciennes aux plus récentes",
+          sortNewestAccessible: "Trier l'activité des plus récentes aux plus anciennes",
         },
         time: {
           justNow: "à l’instant",

@@ -1072,6 +1072,10 @@ export const en = {
           approved: "Approved",
           requestedChanges: "Requested changes",
           reviewed: "Reviewed",
+          sortOldest: "Oldest first",
+          sortNewest: "Most recent",
+          sortOldestAccessible: "Sort activity oldest first",
+          sortNewestAccessible: "Sort activity most recent first",
         },
         time: {
           justNow: "just now",

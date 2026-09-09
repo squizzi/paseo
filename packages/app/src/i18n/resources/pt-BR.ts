@@ -1087,6 +1087,10 @@ export const ptBR: TranslationResources = {
           approved: "Aprovou",
           requestedChanges: "Solicitou alterações",
           reviewed: "Revisou",
+          sortOldest: "Mais antigas",
+          sortNewest: "Mais recentes",
+          sortOldestAccessible: "Ordenar atividade das mais antigas para as mais recentes",
+          sortNewestAccessible: "Ordenar atividade das mais recentes para as mais antigas",
         },
         time: {
           justNow: "agora mesmo",
