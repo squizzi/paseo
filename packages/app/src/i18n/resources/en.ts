@@ -1013,6 +1013,7 @@ export const en = {
         },
         states: {
           draft: "Draft",
+          queued: "Queued",
           merged: "Merged",
           closed: "Closed",
           open: "Open",

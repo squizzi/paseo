@@ -116,6 +116,52 @@ describe("checkout status projection", () => {
     expect(CheckoutPrStatusSchema.parse(payload)).toEqual(payload);
   });
 
+  test("projects GitHub merge-queue membership onto the top-level status field", () => {
+    const payload = normalizeCheckoutPrStatusPayload(
+      {
+        number: 42,
+        repoOwner: "getpaseo",
+        repoName: "paseo",
+        url: "https://github.com/getpaseo/paseo/pull/42",
+        title: "Queued change",
+        state: "open",
+        baseRefName: "main",
+        headRefName: "feat/queued",
+        isMerged: false,
+        isDraft: false,
+        mergeable: "MERGEABLE",
+        checksStatus: "success",
+        reviewDecision: "approved",
+        forgeSpecific: {
+          forge: "github",
+          mergeStateStatus: "CLEAN",
+          autoMergeRequest: null,
+          viewerCanEnableAutoMerge: false,
+          viewerCanDisableAutoMerge: false,
+          viewerCanMergeAsAdmin: false,
+          viewerCanUpdateBranch: true,
+          repository: {
+            autoMergeAllowed: true,
+            mergeCommitAllowed: true,
+            squashMergeAllowed: true,
+            rebaseMergeAllowed: false,
+            viewerDefaultMergeMethod: "SQUASH",
+          },
+          isMergeQueueEnabled: true,
+          isInMergeQueue: true,
+        },
+      },
+      "github",
+    );
+
+    expect(payload).toMatchObject({
+      state: "open",
+      isInMergeQueue: true,
+      forgeSpecific: { isInMergeQueue: true },
+    });
+    expect(CheckoutPrStatusSchema.parse(payload)).toEqual(payload);
+  });
+
   test("projects GitLab merge facts onto forgeSpecific without a github mirror", () => {
     const payload = normalizeCheckoutPrStatusPayload(
       {

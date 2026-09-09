@@ -4000,6 +4000,7 @@ export interface PullRequestStatus {
   headRefName: string;
   isMerged: boolean;
   isDraft?: boolean;
+  isInMergeQueue?: boolean;
   mergeable?: PullRequestMergeable;
   checks?: PullRequestCheck[];
   checksStatus?: ChecksStatus;

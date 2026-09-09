@@ -20,6 +20,7 @@ describe("pull request panel", () => {
         headRefName: "feature",
         isMerged: false,
         isDraft: false,
+        isInMergeQueue: false,
         mergeable: "MERGEABLE",
         checks: [],
       }),

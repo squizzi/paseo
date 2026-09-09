@@ -1945,7 +1945,7 @@ export function createGitHubService(options: CreateGitHubServiceOptions = {}): G
         toBatchCurrentPullRequestItem(node, input.rollup ?? undefined),
         entry.target.headRef,
       );
-      status = built ? { ...built, forgeSpecific: { forge: "github", ...facts } } : null;
+      status = built ? withGithubPullRequestFacts(built, facts) : null;
     }
     const cacheKey = buildCacheKey({
       cwd: entry.target.cwd,
@@ -3104,8 +3104,16 @@ async function addCurrentPullRequestGithubFacts(options: {
   if (!facts) {
     return status;
   }
+  return withGithubPullRequestFacts(status, facts);
+}
+
+function withGithubPullRequestFacts(
+  status: CurrentPullRequestStatus,
+  facts: GitHubPullRequestStatusFacts,
+): CurrentPullRequestStatus {
   return {
     ...status,
+    isInMergeQueue: facts.isInMergeQueue,
     forgeSpecific: { forge: "github", ...facts },
   };
 }

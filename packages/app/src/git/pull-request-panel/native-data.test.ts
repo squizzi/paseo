@@ -37,6 +37,7 @@ function status(forgeSpecific: CheckoutPrStatus["forgeSpecific"], url: string): 
     headRefName: "feature",
     isMerged: false,
     isDraft: false,
+    isInMergeQueue: false,
     mergeable: "UNKNOWN",
     checks: [],
     reviewDecision: null,
