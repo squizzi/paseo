@@ -1,5 +1,9 @@
 import type { PrTimelineEntry } from "./timeline";
 
+export type PullRequestActivitySort = "oldest" | "newest";
+
+export const DEFAULT_PULL_REQUEST_ACTIVITY_SORT: PullRequestActivitySort = "oldest";
+
 export interface PullRequestActivityIdentity {
   prNumber: number;
   activityId: string;
@@ -64,9 +68,17 @@ export function expandActivity(
 
 export function getVisibleEntries(
   state: PullRequestActivityState,
-  input: { prNumber: number; entries: readonly PrTimelineEntry[] },
+  input: {
+    prNumber: number;
+    entries: readonly PrTimelineEntry[];
+    sort?: PullRequestActivitySort;
+  },
 ): VisiblePullRequestEntry[] {
-  return input.entries.map((entry) => {
+  const entries = sortPullRequestActivityEntries(
+    input.entries,
+    input.sort ?? DEFAULT_PULL_REQUEST_ACTIVITY_SORT,
+  );
+  return entries.map((entry) => {
     const key = getActivityStateKey({ prNumber: input.prNumber, activityId: entry.id });
     const collapsedByDefault = shouldCollapseByDefault(entry);
     const isExplicitlyCollapsed = state.collapsedKeys.includes(key);
@@ -76,6 +88,13 @@ export function getVisibleEntries(
 
     return { entry, collapsed };
   });
+}
+
+export function sortPullRequestActivityEntries<T>(
+  entries: readonly T[],
+  sort: PullRequestActivitySort,
+): readonly T[] {
+  return sort === "newest" ? entries.toReversed() : entries;
 }
 
 export function getCollapsedEntryIds(

@@ -954,6 +954,7 @@ export const ru: TranslationResources = {
           checks: "Проверки",
           pipeline: "Пайплайн",
           reviews: "Ревью",
+          activity: "Активность",
         },
         empty: {
           noJobs: "Нет заданий",
@@ -987,6 +988,10 @@ export const ru: TranslationResources = {
           approved: "Одобрено",
           requestedChanges: "Запрошены изменения",
           reviewed: "Проведено ревью",
+          sortOldest: "Сначала старые",
+          sortNewest: "Сначала новые",
+          sortOldestAccessible: "Сортировать активность от старых к новым",
+          sortNewestAccessible: "Сортировать активность от новых к старым",
         },
         time: {
           justNow: "прямо сейчас",
