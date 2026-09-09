@@ -141,6 +141,7 @@ export function normalizeCheckoutPrStatusPayload(
     headRefName: status.headRefName,
     isMerged: status.isMerged,
     isDraft: status.isDraft ?? false,
+    isInMergeQueue: resolveIsInMergeQueue(status),
     mergeable: status.mergeable ?? "UNKNOWN",
     checks: status.checks ?? [],
     checksStatus: status.checksStatus,
@@ -163,4 +164,15 @@ export function normalizeCheckoutPrStatusPayload(
     }
   }
   return payload as CheckoutPrStatusPayloadStatus;
+}
+
+function resolveIsInMergeQueue(
+  status: NonNullable<WorkspaceGitRuntimeSnapshot["forge"]["pullRequest"]>,
+): boolean {
+  if (status.isInMergeQueue === true) {
+    return true;
+  }
+  return (
+    isGitHubPullRequestStatusFacts(status.forgeSpecific) && status.forgeSpecific.isInMergeQueue
+  );
 }

@@ -12,7 +12,7 @@ export async function expectPrPaneTitle(page: Page, title: string): Promise<void
 
 export async function expectPrPaneState(
   page: Page,
-  state: "open" | "merged" | "closed" | "draft",
+  state: "open" | "merged" | "closed" | "draft" | "queued",
 ): Promise<void> {
   await expect(page.getByTestId("pr-pane-state")).toHaveText(getStateLabel(state), {
     timeout: 15_000,

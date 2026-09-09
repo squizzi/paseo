@@ -1021,6 +1021,7 @@ export const ja: TranslationResources = {
         },
         states: {
           draft: "ドラフト",
+          queued: "キュー待ち",
           merged: "マージ済み",
           closed: "クローズ済み",
           open: "オープン",

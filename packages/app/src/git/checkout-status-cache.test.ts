@@ -68,6 +68,7 @@ function prStatus(overrides: Partial<CheckoutPrStatusPayload> = {}): CheckoutPrS
       headRefName: "feature",
       isMerged: false,
       isDraft: false,
+      isInMergeQueue: false,
       mergeable: "MERGEABLE",
       checks: [],
       checksStatus: "success",
