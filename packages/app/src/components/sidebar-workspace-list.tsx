@@ -104,6 +104,7 @@ import { useLongPressDragInteraction } from "@/components/sidebar/use-long-press
 import { PinnedSectionHeader } from "@/components/sidebar/pinned-section-header";
 import { SidebarGroupToggleRow } from "@/components/sidebar/sidebar-group-toggle-row";
 import { useLimitedSidebarGroup } from "@/components/sidebar/use-limited-sidebar-group";
+import { SidebarCollapseClip } from "@/components/sidebar/collapse-clip";
 import {
   SidebarWorkspaceRowFrame,
   SidebarWorkspaceRowContent,
@@ -273,7 +274,11 @@ function useIsNewSidebarItem(key: string): boolean {
   return isNew;
 }
 
-function useSidebarItemMotion(input: { entering: boolean; exiting: boolean }) {
+function useSidebarItemMotion(input: {
+  entering: boolean;
+  exiting: boolean;
+  easeContentResize?: boolean;
+}) {
   const offset = useSharedValue(input.entering ? -SIDEBAR_ITEM_MOTION_OFFSET : 0);
   const opacity = useSharedValue(input.entering ? 0 : 1);
   const height = useSharedValue(input.entering ? 0 : SIDEBAR_ITEM_MOTION_AUTO_HEIGHT);
@@ -295,6 +300,7 @@ function useSidebarItemMotion(input: { entering: boolean; exiting: boolean }) {
         entering: input.entering,
         exiting: input.exiting,
         measureOffscreen,
+        easeContentResize: input.easeContentResize,
       });
       if (measureOffscreen && nextHeight > 0) {
         setHasMeasuredEnter(true);
@@ -323,7 +329,7 @@ function useSidebarItemMotion(input: { entering: boolean; exiting: boolean }) {
         },
       );
     },
-    [height, input.entering, input.exiting, measureOffscreen],
+    [height, input.easeContentResize, input.entering, input.exiting, measureOffscreen],
   );
 
   useLayoutEffect(() => {
@@ -404,6 +410,7 @@ function useSidebarItemMotion(input: { entering: boolean; exiting: boolean }) {
 function SidebarItemMotionView({
   entering,
   exiting,
+  easeContentResize,
   innerStyle,
   role,
   accessibilityLabel,
@@ -411,11 +418,12 @@ function SidebarItemMotionView({
 }: PropsWithChildren<{
   entering: boolean;
   exiting: boolean;
+  easeContentResize?: boolean;
   innerStyle?: StyleProp<ViewStyle>;
   role?: Role;
   accessibilityLabel?: string;
 }>) {
-  const motion = useSidebarItemMotion({ entering, exiting });
+  const motion = useSidebarItemMotion({ entering, exiting, easeContentResize });
   return (
     <Animated.View
       role={role}
@@ -2038,54 +2046,52 @@ function ProjectBlock({
   }, [onToggleCollapsed, project.viewKey]);
 
   let projectChildren = null;
-  if (!collapsed) {
-    if (project.workspaces.length > 0) {
-      projectChildren = (
-        <>
-          <DraggableList
-            testID={`sidebar-workspace-list-${project.viewKey}`}
-            data={visibleWorkspaces}
-            keyExtractor={workspaceKeyExtractor}
-            renderItem={renderWorkspace}
-            onDragEnd={handleWorkspaceDragEnd}
-            extraData={activeWorkspaceSelectionKey(activeWorkspaceSelection)}
-            scrollEnabled={false}
-            useDragHandle
-            nestable={useNestable}
-            simultaneousGestureRef={parentGestureRef}
-            gestureHostPresented={dragGestureHostActive}
-            containerStyle={styles.workspaceListContainer}
-          />
-          {canToggleWorkspaces ? (
-            <SidebarGroupToggleRow
-              expanded={workspacesExpanded}
-              onPress={toggleWorkspacesExpanded}
-              testID={`sidebar-project-show-more-${project.viewKey}`}
-            />
-          ) : null}
-        </>
-      );
-    } else if (rowModel.trailingAction.kind === "new_workspace") {
-      projectChildren = (
-        <NewWorkspaceGhostRow
-          project={project}
-          displayName={displayName}
-          worktreeTarget={rowModel.trailingAction.target}
-          onWorkspacePress={onWorkspacePress}
+  if (project.workspaces.length > 0) {
+    projectChildren = (
+      <>
+        <DraggableList
+          testID={`sidebar-workspace-list-${project.viewKey}`}
+          data={visibleWorkspaces}
+          keyExtractor={workspaceKeyExtractor}
+          renderItem={renderWorkspace}
+          onDragEnd={handleWorkspaceDragEnd}
+          extraData={activeWorkspaceSelectionKey(activeWorkspaceSelection)}
+          scrollEnabled={false}
+          useDragHandle
+          nestable={useNestable}
+          simultaneousGestureRef={parentGestureRef}
+          gestureHostPresented={dragGestureHostActive}
+          containerStyle={styles.workspaceListContainer}
         />
-      );
-    }
+        {canToggleWorkspaces ? (
+          <SidebarGroupToggleRow
+            expanded={workspacesExpanded}
+            onPress={toggleWorkspacesExpanded}
+            testID={`sidebar-project-show-more-${project.viewKey}`}
+          />
+        ) : null}
+      </>
+    );
+  } else if (rowModel.trailingAction.kind === "new_workspace") {
+    projectChildren = (
+      <NewWorkspaceGhostRow
+        project={project}
+        displayName={displayName}
+        worktreeTarget={rowModel.trailingAction.target}
+        onWorkspacePress={onWorkspacePress}
+      />
+    );
   }
 
-  // Collapse/expand stays instant so the project name does not interpolate.
-  // Add/archive grow or shrink the inserted item's height instead.
+  // Add/archive grow or shrink the inserted item's height. Collapse/expand clips
+  // the child list so the project name stays put.
   return (
     <SidebarItemMotionView
       entering={isNew}
       exiting={isRemovingProject}
+      easeContentResize={false}
       role="group"
       accessibilityLabel={displayName}
-      innerStyle={projectChildren ? styles.projectBlockExpanded : undefined}
     >
       <ProjectHeaderRow
         project={project}
@@ -2110,7 +2116,15 @@ function ProjectBlock({
         dragHandleProps={dragHandleProps}
       />
 
-      {projectChildren}
+      {projectChildren ? (
+        <SidebarCollapseClip
+          expanded={!collapsed}
+          innerStyle={styles.projectBlockExpanded}
+          testID={`sidebar-project-collapse-clip-${project.viewKey}`}
+        >
+          {projectChildren}
+        </SidebarCollapseClip>
+      ) : null}
     </SidebarItemMotionView>
   );
 }
@@ -2728,31 +2742,29 @@ function ProjectModeList({
       {pinnedChats.length > 0 ? (
         <View style={styles.pinnedSection} testID="sidebar-pinned-section">
           <PinnedSectionHeader collapsed={pinnedCollapsed} onToggle={togglePinnedCollapsed} />
-          {pinnedCollapsed ? null : (
-            <>
-              <DraggableList
-                testID="sidebar-pinned-list"
-                data={visiblePinnedChats}
-                keyExtractor={workspaceKeyExtractor}
-                renderItem={renderPinnedChat}
-                onDragEnd={onPinnedWorkspaceReorder}
-                extraData={activeWorkspaceSelectionKey(activeWorkspaceSelection)}
-                scrollEnabled={false}
-                useDragHandle
-                nestable={platformIsNative}
-                simultaneousGestureRef={parentGestureRef}
-                gestureHostPresented={dragGestureHostActive}
-                containerStyle={styles.workspaceListContainer}
+          <SidebarCollapseClip expanded={!pinnedCollapsed} testID="sidebar-pinned-collapse-clip">
+            <DraggableList
+              testID="sidebar-pinned-list"
+              data={visiblePinnedChats}
+              keyExtractor={workspaceKeyExtractor}
+              renderItem={renderPinnedChat}
+              onDragEnd={onPinnedWorkspaceReorder}
+              extraData={activeWorkspaceSelectionKey(activeWorkspaceSelection)}
+              scrollEnabled={false}
+              useDragHandle
+              nestable={platformIsNative}
+              simultaneousGestureRef={parentGestureRef}
+              gestureHostPresented={dragGestureHostActive}
+              containerStyle={styles.workspaceListContainer}
+            />
+            {canTogglePinnedChats ? (
+              <SidebarGroupToggleRow
+                expanded={pinnedChatsExpanded}
+                onPress={togglePinnedChatsExpanded}
+                testID="sidebar-pinned-show-more"
               />
-              {canTogglePinnedChats ? (
-                <SidebarGroupToggleRow
-                  expanded={pinnedChatsExpanded}
-                  onPress={togglePinnedChatsExpanded}
-                  testID="sidebar-pinned-show-more"
-                />
-              ) : null}
-            </>
-          )}
+            ) : null}
+          </SidebarCollapseClip>
         </View>
       ) : null}
       {/* The header carries the display menu, which is the only way back out of a filter, so it

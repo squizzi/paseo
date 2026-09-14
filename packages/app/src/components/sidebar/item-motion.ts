@@ -111,6 +111,7 @@ export function resolveSidebarItemMotionContentResize(input: {
   entering: boolean;
   exiting: boolean;
   measureOffscreen: boolean;
+  easeContentResize?: boolean;
 }): SidebarItemMotionContentResize {
   if (input.nextHeight <= 0) {
     return { action: "ignore" };
@@ -127,5 +128,52 @@ export function resolveSidebarItemMotionContentResize(input: {
   if (input.previousHeight <= 0) {
     return { action: "record", height: input.nextHeight };
   }
+  if (input.easeContentResize === false) {
+    return { action: "record", height: input.nextHeight };
+  }
   return { action: "ease", from: input.previousHeight, to: input.nextHeight };
+}
+
+export type SidebarCollapseClipResize = { action: "ignore" } | { action: "ease"; to: number };
+
+/** Child-list accordion: keep easing toward the latest measured height, never snap back. */
+export function resolveSidebarCollapseClipResize(input: {
+  expanded: boolean;
+  settledOpen: boolean;
+  nextHeight: number;
+  targetHeight: number;
+}): SidebarCollapseClipResize {
+  if (!input.expanded || input.settledOpen || input.nextHeight <= 0) {
+    return { action: "ignore" };
+  }
+  if (Math.abs(input.nextHeight - input.targetHeight) <= 0.5) {
+    return { action: "ignore" };
+  }
+  return { action: "ease", to: input.nextHeight };
+}
+
+interface SidebarCollapseClipFrameStyle {
+  height: number | "auto";
+  overflow: "hidden" | "visible";
+  position: "relative";
+}
+
+export function resolveSidebarCollapseClipFrameStyle(
+  height: number,
+): SidebarCollapseClipFrameStyle {
+  "worklet";
+  // The expanding inner is position:absolute. It has to bind to this clip, not
+  // the project row: a lower group would otherwise paint over collapsed rows above.
+  if (height >= 0) {
+    return {
+      height,
+      overflow: "hidden",
+      position: "relative",
+    };
+  }
+  return {
+    height: "auto",
+    overflow: "visible",
+    position: "relative",
+  };
 }
