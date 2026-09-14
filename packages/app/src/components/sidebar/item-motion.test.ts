@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   isNewSidebarMotionItem,
   rememberSidebarMotionItem,
+  resolveSidebarCollapseClipFrameStyle,
+  resolveSidebarCollapseClipResize,
   resolveSidebarItemMotionContentResize,
   resolveSidebarItemMotionFrameStyle,
   seedSidebarItemMotionKeys,
@@ -270,5 +272,71 @@ describe("sidebar item motion keys", () => {
         measureOffscreen: false,
       }),
     ).toEqual({ action: "ignore" });
+  });
+
+  it("records project-block height changes without easing them", () => {
+    expect(
+      resolveSidebarItemMotionContentResize({
+        nextHeight: 148,
+        previousHeight: 36,
+        entering: false,
+        exiting: false,
+        measureOffscreen: false,
+        easeContentResize: false,
+      }),
+    ).toEqual({ action: "record", height: 148 });
+  });
+});
+
+describe("sidebar collapse clip", () => {
+  it("eases toward later measurements without snapping back to the previous target", () => {
+    expect(
+      resolveSidebarCollapseClipResize({
+        expanded: true,
+        settledOpen: false,
+        nextHeight: 72,
+        targetHeight: 0,
+      }),
+    ).toEqual({ action: "ease", to: 72 });
+    expect(
+      resolveSidebarCollapseClipResize({
+        expanded: true,
+        settledOpen: false,
+        nextHeight: 148,
+        targetHeight: 72,
+      }),
+    ).toEqual({ action: "ease", to: 148 });
+  });
+
+  it("ignores layouts once the group is open or while it is collapsing", () => {
+    expect(
+      resolveSidebarCollapseClipResize({
+        expanded: true,
+        settledOpen: true,
+        nextHeight: 168,
+        targetHeight: 148,
+      }),
+    ).toEqual({ action: "ignore" });
+    expect(
+      resolveSidebarCollapseClipResize({
+        expanded: false,
+        settledOpen: false,
+        nextHeight: 148,
+        targetHeight: 148,
+      }),
+    ).toEqual({ action: "ignore" });
+  });
+
+  it("keeps the clip as the containing block so a lower group cannot paint into rows above it", () => {
+    expect(resolveSidebarCollapseClipFrameStyle(148)).toEqual({
+      height: 148,
+      overflow: "hidden",
+      position: "relative",
+    });
+    expect(resolveSidebarCollapseClipFrameStyle(SIDEBAR_ITEM_MOTION_AUTO_HEIGHT)).toEqual({
+      height: "auto",
+      overflow: "visible",
+      position: "relative",
+    });
   });
 });

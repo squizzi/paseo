@@ -8,13 +8,14 @@ import {
   openMobileAgentSidebar,
   pinWorkspaceFromSidebar,
 } from "../support/helpers/sidebar";
-import { seedWorkspace } from "../support/helpers/seed-client";
-import { expectWorkspaceHeader } from "../support/helpers/workspace-ui";
+import { seedWorkspace, createWorkspaceInProject } from "../support/helpers/seed-client";
+import { expectWorkspaceHeader, waitForSidebarHydration } from "../support/helpers/workspace-ui";
 import { getServerId } from "../support/helpers/server-id";
 import { projectEquivalenceViewKey } from "../support/helpers/project-view-key";
 import { escapeRegex } from "../support/helpers/regex";
 import { openFilesPanel } from "../support/helpers/workspace-tabs";
 import { seedMockAgentWorkspace } from "../support/helpers/mock-agent";
+import { createTempDirectory } from "../support/helpers/workspace";
 
 const GITHUB_REMOTE_URL = "https://github.com/test-owner/test-repo.git";
 
@@ -236,6 +237,220 @@ test.describe("Sidebar workspace list", () => {
 
       await expect(page.getByTestId("hover-card-workspace-cwd")).toHaveText(worktreeSlug);
     });
+  });
+
+  test("eases a project section with several workspaces instead of snapping", async ({ page }) => {
+    const seeded = await seedWorkspace({
+      git: false,
+      repoPrefix: "sidebar-project-collapse-clip-",
+      title: "One",
+    });
+    const siblingDirs = await Promise.all([
+      createTempDirectory("sidebar-project-collapse-clip-two-"),
+      createTempDirectory("sidebar-project-collapse-clip-three-"),
+      createTempDirectory("sidebar-project-collapse-clip-four-"),
+    ]);
+    try {
+      const siblings = await Promise.all(
+        siblingDirs.map((directory, index) =>
+          createWorkspaceInProject({
+            client: seeded.client,
+            path: directory.path,
+            projectId: seeded.projectId,
+            title: ["Two", "Three", "Four"][index] ?? "Extra",
+          }),
+        ),
+      );
+      await gotoAppShell(page);
+      await waitForSidebarHydration(page);
+      await expect(page.getByTestId(getWorkspaceRowTestId(seeded.workspaceId))).toBeVisible({
+        timeout: 30_000,
+      });
+      for (const sibling of siblings) {
+        await expect(page.getByTestId(getWorkspaceRowTestId(sibling.id))).toBeVisible({
+          timeout: 30_000,
+        });
+      }
+
+      const header = page.getByTestId(
+        `sidebar-project-row-${projectEquivalenceViewKey(seeded.projectKey)}`,
+      );
+      const clip = page.getByTestId(
+        `sidebar-project-collapse-clip-${projectEquivalenceViewKey(seeded.projectKey)}`,
+      );
+      await header.click();
+      await expect(page.getByTestId(getWorkspaceRowTestId(seeded.workspaceId))).toHaveCount(0, {
+        timeout: 10_000,
+      });
+
+      await page.evaluate(() => {
+        const samples: Array<{ clipHeight: number; contentHeight: number }> = [];
+        const startedAt = performance.now();
+        const sample = () => {
+          const clipNode = document.querySelector<HTMLElement>(
+            '[data-testid^="sidebar-project-collapse-clip-"]',
+          );
+          const inner = clipNode?.firstElementChild;
+          if (clipNode instanceof HTMLElement && inner instanceof HTMLElement) {
+            samples.push({
+              clipHeight: clipNode.getBoundingClientRect().height,
+              contentHeight: inner.getBoundingClientRect().height,
+            });
+          }
+          if (performance.now() - startedAt < 600) {
+            requestAnimationFrame(sample);
+            return;
+          }
+          Reflect.set(globalThis, "__sidebarProjectCollapseClipSamples", samples);
+        };
+        requestAnimationFrame(sample);
+      });
+
+      await header.click();
+      await expect(clip).toBeVisible();
+      await expect(page.getByTestId(getWorkspaceRowTestId(seeded.workspaceId))).toBeVisible({
+        timeout: 10_000,
+      });
+      await page.waitForTimeout(700);
+
+      const samples = await page.evaluate(
+        () =>
+          Reflect.get(globalThis, "__sidebarProjectCollapseClipSamples") as Array<{
+            clipHeight: number;
+            contentHeight: number;
+          }>,
+      );
+      const grownIndex = samples.findIndex((sample) => sample.clipHeight > 20);
+      const afterGrowth = grownIndex === -1 ? [] : samples.slice(grownIndex);
+      const clippingSummary = {
+        count: samples.length,
+        clipping: samples.filter((sample) => sample.contentHeight - sample.clipHeight > 2).length,
+        uniqueClipHeights: new Set(samples.map((sample) => Math.round(sample.clipHeight))).size,
+        collapsedAfterGrowth: afterGrowth.filter((sample) => sample.clipHeight < 8).length,
+      };
+      expect(
+        clippingSummary.clipping,
+        `expected the project child list to stay clipped while it expands, received ${JSON.stringify(clippingSummary)}`,
+      ).toBeGreaterThan(2);
+      expect(
+        clippingSummary.uniqueClipHeights,
+        `expected the project clip height to ease across frames, received ${JSON.stringify(clippingSummary)}`,
+      ).toBeGreaterThan(2);
+      expect(
+        clippingSummary.collapsedAfterGrowth,
+        `expected the project clip not to collapse when it releases auto height, received ${JSON.stringify(clippingSummary)}`,
+      ).toBe(0);
+    } finally {
+      for (const directory of siblingDirs) {
+        try {
+          await directory.cleanup();
+        } catch {
+          // Best-effort; the seeded project cleanup still runs.
+        }
+      }
+      await seeded.cleanup();
+    }
+  });
+
+  test("keeps a lower project's collapse clip from painting into collapsed rows above it", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    const upper = await seedWorkspace({
+      git: false,
+      repoPrefix: "sidebar-collapse-clip-upper-",
+      title: "Upper",
+    });
+    const middle = await seedWorkspace({
+      git: false,
+      repoPrefix: "sidebar-collapse-clip-middle-",
+      title: "Middle",
+    });
+    const lower = await seedWorkspace({
+      git: false,
+      repoPrefix: "sidebar-collapse-clip-lower-",
+      title: "Lower",
+    });
+
+    try {
+      await gotoAppShell(page);
+      await waitForSidebarHydration(page);
+      const upperHeader = page.getByTestId(
+        `sidebar-project-row-${projectEquivalenceViewKey(upper.projectKey)}`,
+      );
+      const middleHeader = page.getByTestId(
+        `sidebar-project-row-${projectEquivalenceViewKey(middle.projectKey)}`,
+      );
+      const lowerHeader = page.getByTestId(
+        `sidebar-project-row-${projectEquivalenceViewKey(lower.projectKey)}`,
+      );
+      await expect(upperHeader).toBeVisible({ timeout: 30_000 });
+      await expect(middleHeader).toBeVisible();
+      await expect(lowerHeader).toBeVisible();
+
+      await upperHeader.click();
+      await middleHeader.click();
+      await expect(page.getByTestId(getWorkspaceRowTestId(upper.workspaceId))).toHaveCount(0, {
+        timeout: 10_000,
+      });
+      await expect(page.getByTestId(getWorkspaceRowTestId(middle.workspaceId))).toHaveCount(0);
+
+      const lowerClipTestId = `sidebar-project-collapse-clip-${projectEquivalenceViewKey(lower.projectKey)}`;
+      await lowerHeader.click();
+      await expect(page.getByTestId(getWorkspaceRowTestId(lower.workspaceId))).toHaveCount(0, {
+        timeout: 10_000,
+      });
+      await page.waitForTimeout(220);
+
+      await page.evaluate((clipTestId) => {
+        const samples: Array<{ clipTop: number; innerTop: number }> = [];
+        const startedAt = performance.now();
+        const sample = () => {
+          const clip = document.querySelector<HTMLElement>(`[data-testid="${clipTestId}"]`);
+          const inner = clip?.firstElementChild;
+          if (clip instanceof HTMLElement && inner instanceof HTMLElement) {
+            samples.push({
+              clipTop: clip.getBoundingClientRect().top,
+              innerTop: inner.getBoundingClientRect().top,
+            });
+          }
+          if (performance.now() - startedAt < 600) {
+            requestAnimationFrame(sample);
+            return;
+          }
+          Reflect.set(globalThis, "__sidebarLowerProjectCollapsePlacementSamples", samples);
+        };
+        requestAnimationFrame(sample);
+      }, lowerClipTestId);
+
+      await lowerHeader.click();
+      await expect(page.getByTestId(getWorkspaceRowTestId(lower.workspaceId))).toBeVisible({
+        timeout: 10_000,
+      });
+      await page.waitForTimeout(700);
+
+      const samples = await page.evaluate(
+        () =>
+          Reflect.get(globalThis, "__sidebarLowerProjectCollapsePlacementSamples") as Array<{
+            clipTop: number;
+            innerTop: number;
+          }>,
+      );
+      const misplaced = samples.filter((sample) => sample.clipTop - sample.innerTop > 8);
+      expect(
+        misplaced.length,
+        `expected the expanding inner to stay in the lower clip, received ${JSON.stringify({
+          count: samples.length,
+          misplaced: misplaced.length,
+          first: samples[0],
+          worst: misplaced[0],
+        })}`,
+      ).toBe(0);
+    } finally {
+      await lower.cleanup();
+      await middle.cleanup();
+      await upper.cleanup();
+    }
   });
 });
 
