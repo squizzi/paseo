@@ -4,7 +4,7 @@ import {
   beginTextReveal,
   isTextRevealSettled,
   visibleRevealedText,
-} from "@/agent-stream/text-reveal";
+} from "./title-pacing";
 import { retargetTitleReveal } from "./title-reveal";
 
 describe("retargetTitleReveal", () => {

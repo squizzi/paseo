@@ -9,7 +9,7 @@ import {
   nextTextRevealFrame,
   type TextRevealState,
   visibleRevealedText,
-} from "@/agent-stream/text-reveal";
+} from "./title-pacing";
 import { retargetTitleReveal } from "@/components/sidebar/title-reveal";
 
 /**
