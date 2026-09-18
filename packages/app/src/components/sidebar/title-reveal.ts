@@ -1,4 +1,4 @@
-import { beginTextReveal, type TextRevealState } from "./title-pacing";
+import { beginTextReveal, type TextRevealState } from "@/agent-stream/text-reveal";
 
 /**
  * A renamed title is a replacement, not growth of the same string. Retype from
