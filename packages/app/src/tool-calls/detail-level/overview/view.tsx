@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Wrench } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { ExpandableBadge } from "@/components/message";
+import { ChatGrowthClip } from "@/agent-stream/chat-entry-motion";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { type OverviewSummary, type OverviewToolCallGroup } from "./model";
 import { OverviewToolCallGroupSheet } from "./sheet";
@@ -82,10 +83,16 @@ export const OverviewToolCallGroupView = memo(function OverviewToolCallGroupView
         showsVerticalScrollIndicator
         onContentSizeChange={scrollToLatest}
       >
-        {children}
+        <ChatGrowthClip
+          enabled={group.isLoading}
+          easeInitial
+          testID={group.isLoading ? "tool-call-group-growth-clip" : undefined}
+        >
+          {children}
+        </ChatGrowthClip>
       </ScrollView>
     ),
-    [children, scrollToLatest],
+    [children, group.isLoading, scrollToLatest],
   );
 
   if (isCompact) {
@@ -117,6 +124,7 @@ export const OverviewToolCallGroupView = memo(function OverviewToolCallGroupView
       isLastInSequence={isLastInSequence}
       onToggle={toggle}
       renderDetails={renderDetails}
+      clipGrowth={group.isLoading}
       borderlessWhenExpanded
     />
   );

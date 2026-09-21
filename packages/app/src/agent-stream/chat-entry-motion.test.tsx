@@ -82,11 +82,12 @@ vi.mock("react-native-reanimated", async () => {
       }
       return store.current;
     },
-    withTiming: (value: unknown) => value,
+    withTiming: vi.fn((value: unknown) => value),
   };
 });
 
-import { ChatEntryMotion } from "./chat-entry-motion";
+import { withTiming, type SharedValue } from "react-native-reanimated";
+import { applyGrowthHeight, ChatEntryMotion } from "./chat-entry-motion";
 
 interface ViewportIntersection {
   isIntersecting: boolean;
@@ -180,5 +181,59 @@ describe("ChatEntryMotion", () => {
       observer.callback([{ isIntersecting: true }]);
     });
     expect(entryOpacity()).toBe(1);
+  });
+});
+
+describe("applyGrowthHeight", () => {
+  function createHeight(initial: number): {
+    writes: number[];
+    height: SharedValue<number>;
+  } {
+    const writes: number[] = [];
+    let inner = initial;
+    const height: SharedValue<number> = {
+      get value() {
+        return inner;
+      },
+      set value(next: number) {
+        writes.push(next);
+        inner = next;
+      },
+      get: () => inner,
+      set: (value) => {
+        inner = typeof value === "function" ? value(inner) : value;
+        writes.push(inner);
+      },
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      modify: () => undefined,
+    };
+    return { writes, height };
+  }
+
+  it("retargets continued growth instead of snapping back to the last target", () => {
+    const { writes, height } = createHeight(-1);
+    const contentHeightRef = { current: null as number | null };
+
+    applyGrowthHeight(height, contentHeightRef, 100);
+    expect(writes).toEqual([100]);
+
+    writes.length = 0;
+    applyGrowthHeight(height, contentHeightRef, 118);
+    expect(writes).toEqual([118]);
+  });
+
+  it("eases the first measurement from zero when the clip is revealing details", () => {
+    const { writes, height } = createHeight(-1);
+    const contentHeightRef = { current: null as number | null };
+    vi.mocked(withTiming).mockClear();
+
+    applyGrowthHeight(height, contentHeightRef, 80, { easeInitial: true });
+
+    expect(writes).toEqual([0, 80]);
+    expect(vi.mocked(withTiming)).toHaveBeenCalledWith(
+      80,
+      expect.objectContaining({ duration: 160 }),
+    );
   });
 });

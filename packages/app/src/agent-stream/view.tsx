@@ -277,6 +277,26 @@ function renderPendingPermissionsNode(input: {
   );
 }
 
+function GroupedToolCallEntry({
+  isLast,
+  isLoading,
+  children,
+}: {
+  isLast: boolean;
+  isLoading: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <ChatEntryMotion
+      animateOnMount={isLoading}
+      settle={!isLast}
+      testID="tool-call-group-entry-motion"
+    >
+      {children}
+    </ChatEntryMotion>
+  );
+}
+
 function renderStreamItemWithTurnFooter(input: {
   content: ReactNode;
   layoutItem: StreamLayoutItem;
@@ -976,15 +996,14 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             onExpandedChange={setToolCallGroupExpanded}
           >
             {expanded
-              ? group.run.calls.map((call, index) => (
-                  <React.Fragment key={call.id}>
-                    {renderSingleToolCallItem(
-                      call,
-                      index === group.run.calls.length - 1,
-                      GROUPED_TOOL_CALL_DETAIL_MAX_HEIGHT,
-                    )}
-                  </React.Fragment>
-                ))
+              ? group.run.calls.map((call, index) => {
+                  const isLast = index === group.run.calls.length - 1;
+                  return (
+                    <GroupedToolCallEntry key={call.id} isLast={isLast} isLoading={group.isLoading}>
+                      {renderSingleToolCallItem(call, isLast, GROUPED_TOOL_CALL_DETAIL_MAX_HEIGHT)}
+                    </GroupedToolCallEntry>
+                  );
+                })
               : null}
           </OverviewToolCallGroupView>
         );

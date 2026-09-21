@@ -196,15 +196,27 @@ export function ChatEntryMotion({
 interface ChatGrowthClipProps {
   children: ReactNode;
   enabled: boolean;
+  /**
+   * Ease the first measured height from 0. Tool-call details use this so a
+   * completed diff or grouped file-edit list rises in instead of popping at
+   * full height. Streaming markdown keeps the default snap: its first line is
+   * already covered by ChatEntryMotion.
+   */
+  easeInitial?: boolean;
   onLayout?: (event: LayoutChangeEvent) => void;
   style?: StyleProp<ViewStyle>;
   testID?: string;
 }
 
-function applyGrowthHeight(
+interface ApplyGrowthHeightOptions {
+  easeInitial?: boolean;
+}
+
+export function applyGrowthHeight(
   height: SharedValue<number>,
   contentHeightRef: { current: number | null },
   nextHeight: number,
+  options?: ApplyGrowthHeightOptions,
 ) {
   if (nextHeight <= 0) {
     return;
@@ -214,17 +226,29 @@ function applyGrowthHeight(
     return;
   }
   contentHeightRef.current = nextHeight;
-  if (previousHeight === null || nextHeight <= previousHeight + 0.5) {
+  if (previousHeight === null) {
+    cancelAnimation(height);
+    if (options?.easeInitial) {
+      height.value = 0;
+      height.value = withTiming(nextHeight, {
+        duration: CHAT_ENTRY_DURATION_MS,
+        easing: CHAT_ENTRY_EASING,
+        reduceMotion: ReduceMotion.System,
+      });
+      return;
+    }
+    height.value = nextHeight;
+    return;
+  }
+  if (nextHeight <= previousHeight + 0.5) {
     cancelAnimation(height);
     height.value = nextHeight;
     return;
   }
-  // Restart the ease from the last settled height, not the in-flight value. When
-  // growth outruns the 160ms ease, each measurement cuts off the previous one at
-  // its target: earlier lines land immediately and only the newest line eases in.
-  // During a burst, readability beats easing the whole backlog.
+  // Continue from the in-flight height. Snapping to the last target made
+  // character-paced reveal restart a 160ms ease every frame, which reads as
+  // stutter. A burst still eases the remaining distance on the shared curve.
   cancelAnimation(height);
-  height.value = previousHeight;
   height.value = withTiming(nextHeight, {
     duration: CHAT_ENTRY_DURATION_MS,
     easing: CHAT_ENTRY_EASING,
@@ -236,6 +260,7 @@ function applyGrowthHeight(
 export function ChatGrowthClip({
   children,
   enabled,
+  easeInitial = false,
   onLayout,
   style,
   testID,
@@ -249,9 +274,9 @@ export function ChatGrowthClip({
 
   const applyMeasuredHeight = useCallback(
     (nextHeight: number) => {
-      applyGrowthHeight(height, contentHeightRef, nextHeight);
+      applyGrowthHeight(height, contentHeightRef, nextHeight, { easeInitial });
     },
-    [height],
+    [easeInitial, height],
   );
 
   const handleInnerLayout = useCallback(

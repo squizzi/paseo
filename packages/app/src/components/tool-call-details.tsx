@@ -825,6 +825,16 @@ function LoadingSkeleton({ containerStyle }: { containerStyle: StyleProp<ViewSty
   );
 }
 
+function usesInnerGrowthClip(detail: ToolCallDetail | undefined): boolean {
+  if (!detail) {
+    return false;
+  }
+  if (detail.type === "plain_text") {
+    return true;
+  }
+  return detail.type === "unknown" && typeof detail.input === "string" && detail.output === null;
+}
+
 export function ToolCallDetailsContent({
   toolName,
   detail,
@@ -859,7 +869,16 @@ export function ToolCallDetailsContent({
     return <Text style={styles.emptyStateText}>{t("toolCallDetails.empty")}</Text>;
   }
 
-  return <View style={ds.fullBleedContainerStyle}>{sections}</View>;
+  const sectionsView = <View style={ds.fullBleedContainerStyle}>{sections}</View>;
+  const clipSections = followOutput && !usesInnerGrowthClip(detail);
+  if (!clipSections) {
+    return sectionsView;
+  }
+  return (
+    <ChatGrowthClip enabled easeInitial testID="tool-call-detail-growth-clip">
+      {sectionsView}
+    </ChatGrowthClip>
+  );
 }
 
 // ---- Styles ----

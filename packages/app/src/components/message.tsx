@@ -1994,10 +1994,14 @@ export const AssistantMessage = memo(function AssistantMessage({
   }, [client, fileLinkActions, markdownParser, occurrenceKey, phase, serverId, workspaceRoot]);
 
   const blocks = useMemo(() => splitMarkdownBlocks(revealedMessage), [revealedMessage]);
-  const keyedBlocks = useMemo(
-    () => blocks.map((block, index) => ({ key: `block:${index}`, block })),
-    [blocks],
-  );
+  const keyedBlocks = useMemo(() => {
+    let cursor = 0;
+    return blocks.map((block) => {
+      const sourceOffset = revealedMessage.indexOf(block, cursor);
+      cursor = sourceOffset + block.length;
+      return { key: `block:${sourceOffset}`, block };
+    });
+  }, [blocks, revealedMessage]);
   const animateBlockEntry = useRef(phase === "streaming").current;
 
   const assistantContainerStyle = useMemo(
@@ -2723,6 +2727,34 @@ function buildShimmerTextStyle(input: {
   });
 }
 
+function ExpandableBadgeDetailBody({
+  clipEntry,
+  children,
+}: {
+  clipEntry: boolean;
+  children: ReactNode;
+}) {
+  if (!clipEntry) {
+    return children;
+  }
+  return (
+    <ChatGrowthClip enabled easeInitial testID="tool-call-detail-entry-clip">
+      {children}
+    </ChatGrowthClip>
+  );
+}
+
+function clipCompletedWebDetails(clipGrowth: boolean, hasDetails: boolean): boolean {
+  return isWeb && hasDetails && !clipGrowth;
+}
+
+function expandableBadgeLayoutTransition(clipGrowth: boolean, clipExpandedDetails: boolean) {
+  if (clipGrowth || clipExpandedDetails) {
+    return undefined;
+  }
+  return chatLayoutTransition();
+}
+
 export const ExpandableBadge = memo(function ExpandableBadge({
   label,
   style,
@@ -2993,10 +3025,12 @@ export const ExpandableBadge = memo(function ExpandableBadge({
       }
     : {};
 
+  const clipExpandedDetails = clipCompletedWebDetails(clipGrowth, Boolean(detailContent));
+
   return (
     <Animated.View
       style={containerStyle}
-      layout={clipGrowth ? undefined : chatLayoutTransition()}
+      layout={expandableBadgeLayoutTransition(clipGrowth, clipExpandedDetails)}
       testID={testID}
       onPointerEnter={isWeb ? handleHoverIn : undefined}
       onPointerLeave={isWeb ? handleHoverOut : undefined}
@@ -3043,7 +3077,9 @@ export const ExpandableBadge = memo(function ExpandableBadge({
           onHoverIn={handleDetailHoverIn}
           onHoverOut={handleDetailHoverOut}
         >
-          {detailContent}
+          <ExpandableBadgeDetailBody clipEntry={clipExpandedDetails}>
+            {detailContent}
+          </ExpandableBadgeDetailBody>
         </Pressable>
       ) : null}
     </Animated.View>
