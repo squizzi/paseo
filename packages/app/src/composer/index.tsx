@@ -2595,6 +2595,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
     flexDirection: "row",
     gap: theme.spacing[2],
     flexWrap: "wrap",
+    width: "100%",
+    maxWidth: "100%",
+    minWidth: 0,
   },
   tooltipRow: {
     flexDirection: "row",

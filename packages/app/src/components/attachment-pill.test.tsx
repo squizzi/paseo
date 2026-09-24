@@ -2,7 +2,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AttachmentFrame, AttachmentLabel } from "./attachment-pill";
+import { AttachmentFrame, AttachmentLabel, AttachmentPill } from "./attachment-pill";
 
 const { theme } = vi.hoisted(() => ({
   theme: {
@@ -154,6 +154,54 @@ describe("expandable attachment pills", () => {
 
     const details = mounted.querySelector('[data-testid="attachment-prompt-details"]');
     expect(details?.textContent).toBe("Workspace file: src/app.ts");
+  });
+
+  it("places the dropdown toggle before the pill text", () => {
+    const mounted = renderFrame(
+      <AttachmentFrame details="Workspace file: src/app.ts">
+        <AttachmentLabel title="app.ts" subtitle="TypeScript" />
+      </AttachmentFrame>,
+    );
+
+    const toggle = mounted.querySelector('[data-testid="attachment-expand-toggle"]');
+    if (!(toggle instanceof HTMLElement)) {
+      throw new Error("expected an expand toggle");
+    }
+    const label = mounted.querySelector("span");
+    if (!(label instanceof HTMLElement)) {
+      throw new Error("expected a label span");
+    }
+
+    // Node.DOCUMENT_POSITION_FOLLOWING (4) means label follows toggle in DOM order
+    expect(toggle.compareDocumentPosition(label) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("supports expanding from an AttachmentPill", () => {
+    const handleRemove = vi.fn();
+    const handleOpen = vi.fn();
+    const mounted = renderFrame(
+      <AttachmentPill
+        onOpen={handleOpen}
+        onRemove={handleRemove}
+        openAccessibilityLabel="Open app.ts"
+        removeAccessibilityLabel="Remove app.ts"
+        details="Workspace file: src/app.ts"
+      >
+        <AttachmentLabel title="app.ts" subtitle="TypeScript" />
+      </AttachmentPill>,
+    );
+
+    const toggle = mounted.querySelector('[data-testid="attachment-expand-toggle"]');
+    if (!(toggle instanceof HTMLElement)) {
+      throw new Error("expected an expand toggle");
+    }
+    act(() => {
+      toggle.click();
+    });
+
+    const details = mounted.querySelector('[data-testid="attachment-prompt-details"]');
+    expect(details?.textContent).toBe("Workspace file: src/app.ts");
+    expect(handleOpen).not.toHaveBeenCalled();
   });
 
   it("does not show a dropdown when there is no prompt to preview", () => {
