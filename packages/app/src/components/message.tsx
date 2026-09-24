@@ -57,11 +57,7 @@ import Animated, {
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Rect, Stop } from "react-native-svg";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { MarkdownRenderer, type MarkdownStyles } from "@/components/markdown/renderer";
-import {
-  ChatEntryMotion,
-  ChatGrowthClip,
-  chatLayoutTransition,
-} from "@/agent-stream/chat-entry-motion";
+import { ChatGrowthClip, chatLayoutTransition } from "@/agent-stream/chat-entry-motion";
 import type { TaskActivity, TodoEntry, UserMessageImageAttachment } from "@/types/stream";
 import type { AgentAttachment } from "@getpaseo/protocol/messages";
 import type { ToolCallDetail } from "@getpaseo/protocol/agent-types";
@@ -1380,8 +1376,6 @@ interface AssistantMessageBlockProps {
   block: string;
   marginBottom: number;
   clipGrowth: boolean;
-  animateEntry: boolean;
-  isNewestBlock: boolean;
   children: ReactNode;
 }
 
@@ -1389,8 +1383,6 @@ function AssistantMessageBlock({
   block,
   marginBottom,
   clipGrowth,
-  animateEntry,
-  isNewestBlock,
   children,
 }: AssistantMessageBlockProps) {
   const style = useMemo(() => (marginBottom > 0 ? { marginBottom } : undefined), [marginBottom]);
@@ -1403,8 +1395,8 @@ function AssistantMessageBlock({
   );
   // While streaming, ChatGrowthClip owns this block's height; a layout
   // transition would fight it. Once streamed, spacing shifts ease on the
-  // shared curve so a settling neighbor tracks the entry motion above it.
-  const container = (
+  // shared curve so a settling neighbor tracks the row above it.
+  return (
     <Animated.View style={style} layout={clipGrowth ? undefined : chatLayoutTransition()}>
       <ChatGrowthClip
         enabled={clipGrowth}
@@ -1414,16 +1406,6 @@ function AssistantMessageBlock({
         {children}
       </ChatGrowthClip>
     </Animated.View>
-  );
-  if (!animateEntry) {
-    return container;
-  }
-  // Only the newest block fades in; older blocks snap to rest so a burst reveals
-  // the backlog immediately instead of fading several paragraphs at once.
-  return (
-    <ChatEntryMotion settle={!isNewestBlock} testID="assistant-block-entry-motion">
-      {container}
-    </ChatEntryMotion>
   );
 }
 
@@ -2005,8 +1987,6 @@ export const AssistantMessage = memo(function AssistantMessage({
       return { key: `block:${sourceOffset}`, block };
     });
   }, [blocks, revealedMessage]);
-  const animateBlockEntry = useRef(phase === "streaming").current;
-
   const assistantContainerStyle = useMemo(
     () => [
       assistantMessageStylesheet.container,
@@ -2037,8 +2017,6 @@ export const AssistantMessage = memo(function AssistantMessage({
           block={block}
           marginBottom={index < keyedBlocks.length - 1 ? 12 : 0}
           clipGrowth={phase === "streaming"}
-          animateEntry={animateBlockEntry}
-          isNewestBlock={index === keyedBlocks.length - 1}
         >
           <MemoizedMarkdownBlock
             text={block}

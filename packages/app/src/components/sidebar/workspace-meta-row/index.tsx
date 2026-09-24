@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } fr
 import { useTranslation } from "react-i18next";
 import { Pressable, Text, View, type GestureResponderEvent } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import Animated, { Easing, FadeIn, FadeOut, LinearTransition } from "react-native-reanimated";
+import Animated, { Easing, FadeIn, FadeOut } from "react-native-reanimated";
 import { ExternalLink, Folder, GitBranch, Globe } from "lucide-react-native";
 import {
   workspaceLabelKey,
@@ -47,11 +47,8 @@ const EMPTY_LABELS: readonly WorkspaceLabelDefinition[] = [];
 /** Matches the sidebar's own row motion (see item-motion.ts) so content that arrives or
  * changes underneath a workspace eases in and out the same way the row itself does. */
 const META_ROW_EASING = Easing.out(Easing.cubic);
-const metaRowFadeIn = FadeIn.duration(SIDEBAR_ITEM_MOTION_DURATION_MS).easing(META_ROW_EASING);
-const metaRowFadeOut = FadeOut.duration(SIDEBAR_ITEM_MOTION_DURATION_MS).easing(META_ROW_EASING);
-const metaRowLayout = LinearTransition.duration(SIDEBAR_ITEM_MOTION_DURATION_MS).easing(
-  META_ROW_EASING,
-);
+const chipFadeIn = FadeIn.duration(SIDEBAR_ITEM_MOTION_DURATION_MS).easing(META_ROW_EASING);
+const chipFadeOut = FadeOut.duration(SIDEBAR_ITEM_MOTION_DURATION_MS).easing(META_ROW_EASING);
 
 const foregroundMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 const mutedMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
@@ -108,11 +105,7 @@ export function WorkspaceMetaRow({
   if (items.length === 0) return null;
 
   return (
-    <Animated.View
-      style={styles.row}
-      entering={hasMountedRef.current ? metaRowFadeIn : undefined}
-      exiting={metaRowFadeOut}
-    >
+    <View style={styles.row}>
       {items.map((item, index) => (
         <Fragment key={item.kind}>
           {index > 0 ? <Text style={styles.separator}>·</Text> : null}
@@ -124,7 +117,7 @@ export function WorkspaceMetaRow({
           />
         </Fragment>
       ))}
-    </Animated.View>
+    </View>
   );
 }
 
@@ -138,7 +131,7 @@ function MetaItemNode({
   hostBadge: HostBadgeModel | null;
   /** First on the line, so this item's ink sets the rail the title above it already uses. */
   leading: boolean;
-  /** Suppresses entering animation on the row's first paint — see `WorkspaceMetaRow`. */
+  /** Suppresses chip fade on the row's first paint — see `WorkspaceMetaRow`. */
   animateChanges: boolean;
 }): ReactNode {
   if (item.kind === "branch") {
@@ -199,23 +192,17 @@ function LabelsItem({
   animateChanges: boolean;
 }) {
   return (
-    <Animated.View
-      style={[styles.labels, leading && styles.labelsLeading]}
-      entering={animateChanges ? metaRowFadeIn : undefined}
-      exiting={metaRowFadeOut}
-      layout={metaRowLayout}
-    >
+    <View style={[styles.labels, leading && styles.labelsLeading]}>
       {labels.map((label) => (
         <Animated.View
           key={workspaceLabelKey(label.name)}
-          entering={animateChanges ? metaRowFadeIn : undefined}
-          exiting={metaRowFadeOut}
-          layout={metaRowLayout}
+          entering={animateChanges ? chipFadeIn : undefined}
+          exiting={chipFadeOut}
         >
           <WorkspaceLabelChip label={label} />
         </Animated.View>
       ))}
-    </Animated.View>
+    </View>
   );
 }
 

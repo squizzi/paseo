@@ -200,7 +200,7 @@ interface ChatGrowthClipProps {
    * Ease the first measured height from 0. Tool-call details use this so a
    * completed diff or grouped file-edit list rises in instead of popping at
    * full height. Streaming markdown keeps the default snap: its first line is
-   * already covered by ChatEntryMotion.
+   * already on screen inside the live block.
    */
   easeInitial?: boolean;
   onLayout?: (event: LayoutChangeEvent) => void;

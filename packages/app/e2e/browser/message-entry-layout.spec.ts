@@ -119,7 +119,7 @@ test("keeps a submitted user message moving after transport acknowledgement", as
   }
 });
 
-test("animates the running progress, fork action, and elapsed time as one chat entry", async ({
+test("shows the running progress, fork action, and elapsed time without an entry fade", async ({
   page,
 }) => {
   const agent = await startRunningMockAgent(page, {
@@ -131,45 +131,12 @@ test("animates the running progress, fork action, and elapsed time as one chat e
     await awaitAssistantMessage(page);
     await expectAgentIdle(page);
 
-    await page.evaluate(() => {
-      const samples: Array<{ opacity: number; transform: string }> = [];
-      const startedAt = performance.now();
-      const sample = () => {
-        const footer = Array.from(
-          document.querySelectorAll<HTMLElement>('[data-testid="turn-footer-entry-motion"]'),
-        ).find((candidate) => candidate.querySelector('[data-testid="turn-working-indicator"]'));
-        if (footer) {
-          const style = getComputedStyle(footer);
-          samples.push({
-            opacity: Number.parseFloat(style.opacity),
-            transform: style.transform,
-          });
-        }
-        if (performance.now() - startedAt < 500) {
-          requestAnimationFrame(sample);
-          return;
-        }
-        Reflect.set(globalThis, "__turnFooterEntrySamples", samples);
-      };
-      requestAnimationFrame(sample);
-    });
-
     await submitMessage(page, "Measure the running footer entry.");
+    const footer = page.getByTestId("turn-footer-entry-motion").last();
     await expect(page.getByTestId("turn-working-indicator")).toBeVisible();
     await expect(page.getByTestId("assistant-fork-menu-trigger").last()).toBeVisible();
     await expect(page.getByTestId("turn-working-elapsed")).toBeVisible();
-    await page.waitForTimeout(550);
-
-    const samples = await page.evaluate(
-      () =>
-        Reflect.get(globalThis, "__turnFooterEntrySamples") as Array<{
-          opacity: number;
-          transform: string;
-        }>,
-    );
-    const movingSamples = samples.filter((sample) => sample.opacity > 0 && sample.opacity < 0.999);
-    expect(movingSamples.length).toBeGreaterThan(2);
-    expect(new Set(movingSamples.map((sample) => sample.transform)).size).toBeGreaterThan(2);
+    await expect(footer).toHaveCSS("opacity", "1");
   } finally {
     await agent.cleanup();
   }
@@ -227,7 +194,7 @@ test("keeps the running fork control settled after it first appears", async ({ p
   }
 });
 
-test("animates later markdown blocks as they enter the chat viewport", async ({ page }) => {
+test("shows later markdown blocks at rest as they enter the chat viewport", async ({ page }) => {
   const agent = await startRunningMockAgent(page, {
     prefix: "assistant-block-entry-motion-",
     model: "e2e-fast-stream",
@@ -293,16 +260,15 @@ test("animates later markdown blocks as they enter the chat viewport", async ({ 
     const arrivalSummary = arrivals.map((samples) => ({
       count: samples.length,
       opacities: [...new Set(samples.map((sample) => sample.opacity))],
-      transforms: new Set(samples.map((sample) => sample.transform)).size,
+      transforms: [...new Set(samples.map((sample) => sample.transform))],
     }));
-    const animatedArrivals = laterArrivals.filter((samples) => {
-      const moving = samples.filter((sample) => sample.opacity > 0 && sample.opacity < 0.999);
-      return moving.length > 1 && new Set(moving.map((sample) => sample.transform)).size > 1;
-    });
+    const fadedArrivals = laterArrivals.filter((samples) =>
+      samples.some((sample) => Number.isFinite(sample.opacity) && sample.opacity < 0.999),
+    );
     expect(
-      animatedArrivals.length,
-      `expected later markdown blocks to animate in, received ${JSON.stringify(arrivalSummary)}`,
-    ).toBeGreaterThan(0);
+      fadedArrivals.length,
+      `expected later markdown blocks to appear at rest, received ${JSON.stringify(arrivalSummary)}`,
+    ).toBe(0);
   } finally {
     await agent.cleanup();
   }

@@ -1,6 +1,7 @@
 import { ChatFind, ChatFindExpansion } from "@/agent-stream/chat-find";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import React, {
+  Fragment,
   forwardRef,
   memo,
   useCallback,
@@ -145,29 +146,26 @@ function shouldAnimateStreamItemEntry(
   pendingClientMessageIds: ReadonlySet<string>,
   hydratedUserMessageKeys: ReadonlySet<string> | null,
 ): boolean {
-  // Assistant text owns motion per markdown block. Animating the row as well
-  // double-fades the first paragraph and still leaves later blocks popping in.
-  if (layoutItem.item.kind === "assistant_message") {
+  // Entry fade belongs to the row the user just sent. Assistant text, tool
+  // calls, and the turn footer arrive through the growth clip and the rise.
+  if (layoutItem.item.kind !== "user_message") {
     return false;
   }
   // Submitted user rows must keep entry motion after a fast ack. Pending-only
   // animation dies when the provider echoes the message before 160ms.
-  if (layoutItem.item.kind === "user_message") {
-    const item = layoutItem.item;
-    const isPendingSubmission =
-      item.clientMessageId !== undefined && pendingClientMessageIds.has(item.clientMessageId);
-    if (isPendingSubmission) {
-      return true;
-    }
-    if (hydratedUserMessageKeys === null) {
-      return false;
-    }
-    const isHydratedUserMessage = userMessageEntryKeys(item).some((key) =>
-      hydratedUserMessageKeys.has(key),
-    );
-    return !isHydratedUserMessage;
+  const item = layoutItem.item;
+  const isPendingSubmission =
+    item.clientMessageId !== undefined && pendingClientMessageIds.has(item.clientMessageId);
+  if (isPendingSubmission) {
+    return true;
   }
-  return layoutItem.phase === "streaming";
+  if (hydratedUserMessageKeys === null) {
+    return false;
+  }
+  const isHydratedUserMessage = userMessageEntryKeys(item).some((key) =>
+    hydratedUserMessageKeys.has(key),
+  );
+  return !isHydratedUserMessage;
 }
 
 function useHydratedUserMessageKeys(input: {
@@ -269,31 +267,9 @@ function renderPendingPermissionsNode(input: {
   return (
     <View style={stylesheet.permissionsContainer}>
       {input.pendingPermissions.map((permission) => (
-        <ChatEntryMotion key={permission.key} testID="permission-entry-motion">
-          <PermissionRequestCard permission={permission} client={input.client} />
-        </ChatEntryMotion>
+        <PermissionRequestCard key={permission.key} permission={permission} client={input.client} />
       ))}
     </View>
-  );
-}
-
-function GroupedToolCallEntry({
-  isLast,
-  isLoading,
-  children,
-}: {
-  isLast: boolean;
-  isLoading: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <ChatEntryMotion
-      animateOnMount={isLoading}
-      settle={!isLast}
-      testID="tool-call-group-entry-motion"
-    >
-      {children}
-    </ChatEntryMotion>
   );
 }
 
@@ -301,7 +277,6 @@ function renderStreamItemWithTurnFooter(input: {
   content: ReactNode;
   layoutItem: StreamLayoutItem;
   animateEntry: boolean;
-  entryRevision?: string;
   strategy: TurnContentStrategy;
   supportsTimelineCursor: boolean;
   onForkAssistantTurn?: AssistantTurnForkHandler;
@@ -326,7 +301,6 @@ function renderStreamItemWithTurnFooter(input: {
       itemId={input.layoutItem.item.id}
       gapBelow={input.layoutItem.gapBelow}
       animateEntry={input.animateEntry}
-      entryRevision={input.entryRevision}
     >
       {input.content}
     </StreamItemWrapper>
@@ -999,9 +973,9 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
               ? group.run.calls.map((call, index) => {
                   const isLast = index === group.run.calls.length - 1;
                   return (
-                    <GroupedToolCallEntry key={call.id} isLast={isLast} isLoading={group.isLoading}>
+                    <Fragment key={call.id}>
                       {renderSingleToolCallItem(call, isLast, GROUPED_TOOL_CALL_DETAIL_MAX_HEIGHT)}
-                    </GroupedToolCallEntry>
+                    </Fragment>
                   );
                 })
               : null}
@@ -1079,10 +1053,6 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             pendingClientMessageIds,
             hydratedUserMessageKeys,
           ),
-          entryRevision:
-            layoutItem.item.kind === "tool_call"
-              ? presentation.groupsByHostId.get(layoutItem.item.id)?.run.latest.id
-              : undefined,
           strategy: streamRenderStrategy,
           supportsTimelineCursor: supportsAgentForkContextCursor,
           onForkAssistantTurn: readOnly ? undefined : handleForkAssistantTurn,
@@ -1092,7 +1062,6 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         handleForkAssistantTurn,
         hydratedUserMessageKeys,
         pendingClientMessageIds,
-        presentation.groupsByHostId,
         readOnly,
         renderStreamItemContent,
         streamRenderStrategy,
@@ -1946,17 +1915,10 @@ interface StreamItemWrapperProps {
   itemId: string;
   gapBelow: number;
   animateEntry: boolean;
-  entryRevision?: string;
   children: ReactNode;
 }
 
-function StreamItemWrapper({
-  itemId,
-  gapBelow,
-  animateEntry,
-  entryRevision,
-  children,
-}: StreamItemWrapperProps) {
+function StreamItemWrapper({ itemId, gapBelow, animateEntry, children }: StreamItemWrapperProps) {
   const wrapperStyle = useMemo(
     () => [stylesheet.streamItemWrapper, { marginBottom: gapBelow }],
     [gapBelow],
@@ -1965,7 +1927,6 @@ function StreamItemWrapper({
   return (
     <ChatEntryMotion
       animateOnMount={animateEntry}
-      revision={entryRevision}
       style={wrapperStyle}
       testID="stream-item"
       dataSet={dataSet}

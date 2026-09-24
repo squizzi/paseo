@@ -9,11 +9,13 @@ interface GitMergeQueueIconProps {
 /**
  * GitHub's merge-queue glyph in Lucide stroke language: three stacked nodes
  * with waiting lines, so it sits next to GitPullRequest / GitMerge at the same size.
+ * Stroke is thinner than Lucide's 2 because six marks at that weight read heavier
+ * than the pull-request glyph beside it.
  */
 export function GitMergeQueueIcon({
   size = 16,
   color = "currentColor",
-  strokeWidth = 2,
+  strokeWidth = 1.5,
 }: GitMergeQueueIconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">

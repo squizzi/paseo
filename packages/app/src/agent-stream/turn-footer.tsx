@@ -20,7 +20,6 @@ import type { TurnFooterHost } from "./layout";
 import { AssistantForkMenu } from "@/components/assistant-fork-menu";
 import { SyncedLoader } from "@/components/synced-loader";
 import { useRetainedPanelActive } from "@/components/retained-panel";
-import { ChatEntryMotion } from "./chat-entry-motion";
 
 const ThemedSyncedLoader = withUnistyles(SyncedLoader);
 const workingIndicatorColorMapping = (theme: Theme) => ({ color: theme.colors.foreground });
@@ -62,7 +61,7 @@ export const TurnFooter = memo(function TurnFooter({
 }) {
   if (isRunning) {
     return (
-      <TurnFooterRow animateEntry>
+      <TurnFooterRow>
         <RunningTurnFooter
           inFlightTurnStartedAt={inFlightTurnStartedAt}
           onForkInFlightTurn={onForkInFlightTurn}
@@ -81,7 +80,6 @@ export const TurnFooter = memo(function TurnFooter({
       startIndex={host.startIndex}
       supportsTimelineCursor={supportsTimelineCursor}
       onForkAssistantTurn={onForkAssistantTurn}
-      animateEntry
     />
   );
 });
@@ -93,7 +91,6 @@ export const CompletedTurnFooterRow = memo(function CompletedTurnFooterRow({
   startIndex,
   supportsTimelineCursor,
   onForkAssistantTurn,
-  animateEntry = false,
 }: {
   strategy: TurnContentStrategy;
   items: StreamItem[];
@@ -101,10 +98,9 @@ export const CompletedTurnFooterRow = memo(function CompletedTurnFooterRow({
   startIndex: number;
   supportsTimelineCursor: boolean;
   onForkAssistantTurn?: AssistantTurnForkHandler;
-  animateEntry?: boolean;
 }) {
   return (
-    <TurnFooterRow animateEntry={animateEntry}>
+    <TurnFooterRow>
       <CompletedTurnFooter
         strategy={strategy}
         items={items}
@@ -211,25 +207,12 @@ function CompletedTurnFooter({
   );
 }
 
-function TurnFooterRow({
-  children,
-  animateEntry,
-  revision,
-}: {
-  children: ReactNode;
-  animateEntry: boolean;
-  revision?: string;
-}) {
+function TurnFooterRow({ children }: { children: ReactNode }) {
   const rowStyle = useMemo(() => [stylesheet.streamItemWrapper, stylesheet.turnFooterRow], []);
   return (
-    <ChatEntryMotion
-      animateOnMount={animateEntry}
-      revision={revision}
-      style={rowStyle}
-      testID="turn-footer-entry-motion"
-    >
+    <View style={rowStyle} testID="turn-footer-entry-motion">
       {children}
-    </ChatEntryMotion>
+    </View>
   );
 }
 

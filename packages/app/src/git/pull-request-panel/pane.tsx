@@ -631,9 +631,6 @@ function ActivitySortButton({
   const { t } = useTranslation();
   const newestFirst = sort === "newest";
   const icon = newestFirst ? ArrowUp : ArrowDown;
-  const label = newestFirst
-    ? t("workspace.git.pr.activity.sortNewest")
-    : t("workspace.git.pr.activity.sortOldest");
   const accessibilityLabel = newestFirst
     ? t("workspace.git.pr.activity.sortNewestAccessible")
     : t("workspace.git.pr.activity.sortOldestAccessible");
@@ -646,9 +643,7 @@ function ActivitySortButton({
       accessibilityLabel={accessibilityLabel}
       testID="pr-pane-activity-sort"
       style={styles.activitySortButton}
-    >
-      {label}
-    </Button>
+    />
   );
 }
 
