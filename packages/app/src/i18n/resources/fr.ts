@@ -354,6 +354,8 @@ export const fr: TranslationResources = {
       textAttachment: "Pièce jointe texte",
       text: "Texte",
       file: "Fichier",
+      showPrompt: "Afficher ce que ceci envoie à l'agent",
+      hidePrompt: "Masquer ce que ceci envoie à l'agent",
     },
     speak: {
       header: "Prononcé",

@@ -349,6 +349,8 @@ export const ar: TranslationResources = {
       textAttachment: "مرفق النص",
       text: "نص",
       file: "ملف",
+      showPrompt: "إظهار ما يُرسَل إلى الوكيل",
+      hidePrompt: "إخفاء ما يُرسَل إلى الوكيل",
     },
     speak: {
       header: "تكلم",
