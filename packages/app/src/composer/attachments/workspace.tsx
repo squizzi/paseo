@@ -6,6 +6,7 @@ import type {
   WorkspaceComposerAttachment,
 } from "@/attachments/types";
 import { getWorkspaceAttachmentPillContent } from "@/attachments/attachment-pill-content";
+import { getComposerAttachmentPromptPreview } from "@/attachments/prompt-preview";
 import { AttachmentLabel, AttachmentPill } from "@/components/attachment-pill";
 import {
   isWorkspaceAttachment,
@@ -268,6 +269,7 @@ function WorkspaceAttachmentPill({
       onRemove={handleRemove}
       openAccessibilityLabel={getOpenAccessibilityLabel(attachment, t)}
       removeAccessibilityLabel={getRemoveAccessibilityLabel(attachment, t)}
+      details={getComposerAttachmentPromptPreview(attachment)}
       disabled={disabled}
     >
       <AttachmentLabel icon={content.icon} title={content.title} subtitle={content.subtitle} />

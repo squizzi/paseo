@@ -159,6 +159,7 @@ import {
 } from "@/attachments/workspace-file";
 import { createPastedTextAttachment } from "@/attachments/pasted-text";
 import type { PastedTextComposerAttachment } from "@/attachments/types";
+import { getComposerAttachmentPromptPreview } from "@/attachments/prompt-preview";
 import {
   resolveWorkspaceFileDrop,
   type WorkspaceFileDragPayload,
@@ -182,7 +183,6 @@ type AttachmentListUpdater =
 const EMPTY_ATTACHMENT_SCOPE_KEYS: readonly string[] = [];
 
 function noop() {}
-const noopCallback = () => {};
 
 function resolveComposerButtonIconSize(): number {
   return isWeb ? ICON_SIZE.md : ICON_SIZE.lg;
@@ -819,6 +819,7 @@ function GithubAttachmentPill({
       onRemove={handleRemove}
       openAccessibilityLabel={openLabel(kindLabel, `${numberPrefix}${item.number}`)}
       removeAccessibilityLabel={removeLabel(kindLabel, `${numberPrefix}${item.number}`)}
+      details={getComposerAttachmentPromptPreview(attachment)}
       disabled={disabled}
     >
       <AttachmentLabel
@@ -853,10 +854,9 @@ function FileAttachmentPill({
   return (
     <AttachmentPill
       testID="composer-file-attachment-pill"
-      onOpen={noopCallback}
       onRemove={handleRemove}
-      openAccessibilityLabel={fileName}
       removeAccessibilityLabel={removeLabel}
+      details={getComposerAttachmentPromptPreview(attachment)}
       disabled={disabled}
     >
       <AttachmentLabel
@@ -928,10 +928,9 @@ function WorkspaceFileAttachmentPill({
   return (
     <AttachmentPill
       testID="composer-workspace-file-attachment-pill"
-      onOpen={noopCallback}
       onRemove={handleRemove}
-      openAccessibilityLabel={fileName}
       removeAccessibilityLabel={removeLabel}
+      details={getComposerAttachmentPromptPreview(attachment)}
       disabled={disabled}
     >
       <AttachmentLabel
@@ -2648,6 +2647,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
     flexDirection: "row",
     gap: theme.spacing[2],
     flexWrap: "wrap",
+    width: "100%",
+    maxWidth: "100%",
+    minWidth: 0,
   },
   tooltipRow: {
     flexDirection: "row",
