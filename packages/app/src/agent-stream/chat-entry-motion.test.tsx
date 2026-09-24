@@ -87,7 +87,12 @@ vi.mock("react-native-reanimated", async () => {
 });
 
 import { withTiming, type SharedValue } from "react-native-reanimated";
-import { applyGrowthHeight, ChatEntryMotion } from "./chat-entry-motion";
+import {
+  applyGrowthHeight,
+  ChatEntryMotion,
+  shouldAnimateStreamItemEntry,
+} from "./chat-entry-motion";
+import type { StreamLayoutItem } from "./layout";
 
 interface ViewportIntersection {
   isIntersecting: boolean;
@@ -235,5 +240,103 @@ describe("applyGrowthHeight", () => {
       80,
       expect.objectContaining({ duration: 160 }),
     );
+  });
+});
+
+describe("shouldAnimateStreamItemEntry", () => {
+  function makeLayoutItem(
+    item: StreamLayoutItem["item"],
+    phase: StreamLayoutItem["phase"] = "streaming",
+  ): StreamLayoutItem {
+    return {
+      item,
+      phase,
+      aboveItem: null,
+      belowItem: null,
+      gapBelow: 8,
+      assistantSpacing: "default",
+      completedFooter: null,
+      toolSequence: "none",
+      isFirstInUserGroup: false,
+      isLastInUserGroup: false,
+      isLastInToolSequence: false,
+      frameOrder: "content-then-footer",
+    };
+  }
+
+  it("animates streaming thought arrivals when they initially show up", () => {
+    const item = makeLayoutItem(
+      {
+        kind: "thought",
+        id: "thought-1",
+        text: "Thinking...",
+        timestamp: new Date(),
+        status: "loading",
+      },
+      "streaming",
+    );
+    expect(shouldAnimateStreamItemEntry(item, new Set(), new Set())).toBe(true);
+  });
+
+  it("animates streaming tool call arrivals when they initially show up", () => {
+    const item = makeLayoutItem(
+      {
+        kind: "tool_call",
+        id: "tool-1",
+        timestamp: new Date(),
+        payload: {
+          source: "orchestrator",
+          data: {
+            toolCallId: "call-1",
+            toolName: "bash",
+            arguments: {},
+            status: "executing",
+          },
+        },
+      },
+      "streaming",
+    );
+    expect(shouldAnimateStreamItemEntry(item, new Set(), new Set())).toBe(true);
+  });
+
+  it("does not animate thought items in completed history phase", () => {
+    const item = makeLayoutItem(
+      {
+        kind: "thought",
+        id: "thought-1",
+        text: "Thought",
+        timestamp: new Date(),
+        status: "ready",
+      },
+      "complete",
+    );
+    expect(shouldAnimateStreamItemEntry(item, new Set(), new Set())).toBe(false);
+  });
+
+  it("does not animate assistant message row as a unit", () => {
+    const item = makeLayoutItem(
+      {
+        kind: "assistant_message",
+        id: "asst-1",
+        text: "Hello",
+        timestamp: new Date(),
+      },
+      "streaming",
+    );
+    expect(shouldAnimateStreamItemEntry(item, new Set(), new Set())).toBe(false);
+  });
+
+  it("animates pending user message submissions", () => {
+    const item = makeLayoutItem(
+      {
+        kind: "user_message",
+        id: "user-1",
+        clientMessageId: "client-msg-1",
+        text: "Hi",
+        timestamp: new Date(),
+      },
+      "streaming",
+    );
+    expect(shouldAnimateStreamItemEntry(item, new Set(["client-msg-1"]), null)).toBe(true);
   });
 });

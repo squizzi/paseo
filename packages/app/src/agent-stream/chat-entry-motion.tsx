@@ -12,11 +12,56 @@ import Animated, {
   type SharedValue,
 } from "react-native-reanimated";
 import { isWeb } from "@/constants/platform";
+import type { StreamItem } from "@/types/stream";
+import type { StreamLayoutItem } from "./layout";
 
 export const CHAT_ENTRY_DURATION_MS = 160;
 /** One easing curve for every chat arrival, growth, and spacing shift. */
 export const CHAT_ENTRY_EASING = Easing.out(Easing.cubic);
 const CHAT_ENTRY_OFFSET_PX = 6;
+
+export function userMessageEntryKeys(
+  item: Extract<StreamItem, { kind: "user_message" }>,
+): string[] {
+  const keys = [item.id];
+  if (item.clientMessageId !== undefined) {
+    keys.push(item.clientMessageId);
+  }
+  if (item.messageId !== undefined) {
+    keys.push(item.messageId);
+  }
+  return keys;
+}
+
+export function shouldAnimateStreamItemEntry(
+  layoutItem: StreamLayoutItem,
+  pendingClientMessageIds: ReadonlySet<string>,
+  hydratedUserMessageKeys: ReadonlySet<string> | null,
+): boolean {
+  // Assistant text owns motion per markdown block. Animating the row as well
+  // double-fades the first paragraph and still leaves later blocks popping in.
+  if (layoutItem.item.kind === "assistant_message") {
+    return false;
+  }
+  // Submitted user rows must keep entry motion after a fast ack. Pending-only
+  // animation dies when the provider echoes the message before 160ms.
+  if (layoutItem.item.kind === "user_message") {
+    const item = layoutItem.item;
+    const isPendingSubmission =
+      item.clientMessageId !== undefined && pendingClientMessageIds.has(item.clientMessageId);
+    if (isPendingSubmission) {
+      return true;
+    }
+    if (hydratedUserMessageKeys === null) {
+      return false;
+    }
+    const isHydratedUserMessage = userMessageEntryKeys(item).some((key) =>
+      hydratedUserMessageKeys.has(key),
+    );
+    return !isHydratedUserMessage;
+  }
+  return layoutItem.phase === "streaming";
+}
 
 /**
  * Layout transition for rows whose spacing shifts as neighbors arrive. Native

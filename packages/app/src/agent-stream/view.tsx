@@ -107,18 +107,12 @@ import { recordRenderProfileReasons } from "@/utils/render-profiler";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { useStreamHistoryWindow } from "./use-stream-history-window";
 import { PluginTimelineItemView, useInstalledTimelineTransform } from "@/plugins/timeline";
-import { CHAT_ENTRY_DURATION_MS, ChatEntryMotion } from "./chat-entry-motion";
-
-function userMessageEntryKeys(item: Extract<StreamItem, { kind: "user_message" }>): string[] {
-  const keys = [item.id];
-  if (item.clientMessageId !== undefined) {
-    keys.push(item.clientMessageId);
-  }
-  if (item.messageId !== undefined) {
-    keys.push(item.messageId);
-  }
-  return keys;
-}
+import {
+  CHAT_ENTRY_DURATION_MS,
+  ChatEntryMotion,
+  shouldAnimateStreamItemEntry,
+  userMessageEntryKeys,
+} from "./chat-entry-motion";
 
 function collectUserMessageEntryKeys(
   items: readonly StreamItem[],
@@ -139,33 +133,6 @@ function collectUserMessageEntryKeys(
     }
   }
   return keys;
-}
-
-function shouldAnimateStreamItemEntry(
-  layoutItem: StreamLayoutItem,
-  pendingClientMessageIds: ReadonlySet<string>,
-  hydratedUserMessageKeys: ReadonlySet<string> | null,
-): boolean {
-  // Entry fade belongs to the row the user just sent. Assistant text, tool
-  // calls, and the turn footer arrive through the growth clip and the rise.
-  if (layoutItem.item.kind !== "user_message") {
-    return false;
-  }
-  // Submitted user rows must keep entry motion after a fast ack. Pending-only
-  // animation dies when the provider echoes the message before 160ms.
-  const item = layoutItem.item;
-  const isPendingSubmission =
-    item.clientMessageId !== undefined && pendingClientMessageIds.has(item.clientMessageId);
-  if (isPendingSubmission) {
-    return true;
-  }
-  if (hydratedUserMessageKeys === null) {
-    return false;
-  }
-  const isHydratedUserMessage = userMessageEntryKeys(item).some((key) =>
-    hydratedUserMessageKeys.has(key),
-  );
-  return !isHydratedUserMessage;
 }
 
 function useHydratedUserMessageKeys(input: {

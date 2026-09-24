@@ -57,6 +57,7 @@ import Animated, {
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Rect, Stop } from "react-native-svg";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { MarkdownRenderer, type MarkdownStyles } from "@/components/markdown/renderer";
+import { ExpandableBadgeCollapseClip } from "@/components/badge-collapse-clip";
 import { ChatGrowthClip, chatLayoutTransition } from "@/agent-stream/chat-entry-motion";
 import type { TaskActivity, TodoEntry, UserMessageImageAttachment } from "@/types/stream";
 import type { AgentAttachment } from "@getpaseo/protocol/messages";
@@ -2708,29 +2709,8 @@ function buildShimmerTextStyle(input: {
   });
 }
 
-function ExpandableBadgeDetailBody({
-  clipEntry,
-  children,
-}: {
-  clipEntry: boolean;
-  children: ReactNode;
-}) {
-  if (!clipEntry) {
-    return children;
-  }
-  return (
-    <ChatGrowthClip enabled easeInitial testID="tool-call-detail-entry-clip">
-      {children}
-    </ChatGrowthClip>
-  );
-}
-
-function clipCompletedWebDetails(clipGrowth: boolean, hasDetails: boolean): boolean {
-  return isWeb && hasDetails && !clipGrowth;
-}
-
-function expandableBadgeLayoutTransition(clipGrowth: boolean, clipExpandedDetails: boolean) {
-  if (clipGrowth || clipExpandedDetails) {
+function expandableBadgeLayoutTransition(hasDetails: boolean) {
+  if (hasDetails) {
     return undefined;
   }
   return chatLayoutTransition();
@@ -2751,7 +2731,7 @@ export const ExpandableBadge = memo(function ExpandableBadge({
   isLastInSequence = false,
   disableOuterSpacing,
   borderlessWhenExpanded = false,
-  clipGrowth = false,
+  clipGrowth: _clipGrowth = false,
   testID,
 }: ExpandableBadgeProps) {
   const resolvedDisableOuterSpacing = useDisableOuterSpacing(disableOuterSpacing);
@@ -2760,8 +2740,8 @@ export const ExpandableBadge = memo(function ExpandableBadge({
   const [isPressed, setIsPressed] = useState(false);
   const isInteractive = Boolean(onToggle);
   const hasDetailContent = Boolean(renderDetails);
-  const detailContent = hasDetailContent && isExpanded ? renderDetails?.() : null;
   const detailWrapperRef = useRef<View | null>(null);
+  const [isClosing, setIsClosing] = useState(false);
 
   const handleHoverIn = useCallback(() => setIsHovered(true), []);
   const handleHoverOut = useCallback(() => {
@@ -2862,7 +2842,7 @@ export const ExpandableBadge = memo(function ExpandableBadge({
 
   useDetailWheelPropagationBlocker({
     detailWrapperRef,
-    enabled: !isNative && isExpanded && hasDetailContent,
+    enabled: !isNative && (isExpanded || isClosing) && hasDetailContent,
   });
 
   const shimmerLabelStyle = useMemo<StyleProp<TextStyle>>(
@@ -2917,14 +2897,16 @@ export const ExpandableBadge = memo(function ExpandableBadge({
     [isLastInSequence, resolvedDisableOuterSpacing, style],
   );
 
+  const isAttached = (isExpanded || isClosing) && !borderlessWhenExpanded;
+
   const pressableStyle = useMemo(
     () => [
       expandableBadgeStylesheet.pressable,
       isPressed && isInteractive ? expandableBadgeStylesheet.pressablePressed : null,
-      isExpanded && expandableBadgeStylesheet.pressableExpanded,
-      isExpanded && !borderlessWhenExpanded && expandableBadgeStylesheet.pressableExpandedAttached,
+      (isExpanded || isClosing) && expandableBadgeStylesheet.pressableExpanded,
+      isAttached && expandableBadgeStylesheet.pressableExpandedAttached,
     ],
-    [borderlessWhenExpanded, isExpanded, isInteractive, isPressed],
+    [isAttached, isClosing, isExpanded, isInteractive, isPressed],
   );
 
   const detailWrapperStyle = useMemo(
@@ -3006,12 +2988,10 @@ export const ExpandableBadge = memo(function ExpandableBadge({
       }
     : {};
 
-  const clipExpandedDetails = clipCompletedWebDetails(clipGrowth, Boolean(detailContent));
-
   return (
     <Animated.View
       style={containerStyle}
-      layout={expandableBadgeLayoutTransition(clipGrowth, clipExpandedDetails)}
+      layout={expandableBadgeLayoutTransition(hasDetailContent)}
       testID={testID}
       onPointerEnter={isWeb ? handleHoverIn : undefined}
       onPointerLeave={isWeb ? handleHoverOut : undefined}
@@ -3051,17 +3031,17 @@ export const ExpandableBadge = memo(function ExpandableBadge({
           />
         </View>
       </Pressable>
-      {detailContent ? (
-        <Pressable
-          ref={detailWrapperRef}
-          style={detailWrapperStyle}
+      {hasDetailContent ? (
+        <ExpandableBadgeCollapseClip
+          expanded={isExpanded}
+          renderDetails={renderDetails}
+          detailWrapperRef={detailWrapperRef}
+          detailWrapperStyle={detailWrapperStyle}
           onHoverIn={handleDetailHoverIn}
           onHoverOut={handleDetailHoverOut}
-        >
-          <ExpandableBadgeDetailBody clipEntry={clipExpandedDetails}>
-            {detailContent}
-          </ExpandableBadgeDetailBody>
-        </Pressable>
+          onClosingChange={setIsClosing}
+          testID="tool-call-detail-entry-clip"
+        />
       ) : null}
     </Animated.View>
   );
