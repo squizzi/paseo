@@ -65,6 +65,7 @@ import {
 import type { TaskActivity, TodoEntry, UserMessageImageAttachment } from "@/types/stream";
 import type { AgentAttachment } from "@getpaseo/protocol/messages";
 import type { ToolCallDetail } from "@getpaseo/protocol/agent-types";
+import { renderPromptAttachmentAsText } from "@getpaseo/protocol/prompt-attachments";
 import { buildToolCallPresentation } from "@/tool-calls/presentation";
 import { resolveToolCallIcon } from "@/utils/tool-call-icon";
 import { getMarkdownListMarker, getMarkdownListSpacing } from "@/utils/markdown-list";
@@ -540,6 +541,8 @@ export const UserMessage = memo(function UserMessage({
                 return (
                   <AttachmentFrame
                     key={`${attachment.type}:${"number" in attachment ? attachment.number : index}`}
+                    details={renderPromptAttachmentAsText(attachment)}
+                    testID="user-message-attachment-pill"
                   >
                     <AttachmentLabel
                       icon={content.icon}

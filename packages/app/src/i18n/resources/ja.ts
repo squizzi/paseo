@@ -353,6 +353,8 @@ export const ja: TranslationResources = {
       textAttachment: "テキスト添付ファイル",
       text: "テキスト",
       file: "ファイル",
+      showPrompt: "エージェントに送る内容を表示",
+      hidePrompt: "エージェントに送る内容を隠す",
     },
     speak: {
       header: "読み上げ済み",

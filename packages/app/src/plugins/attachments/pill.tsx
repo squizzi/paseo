@@ -2,6 +2,7 @@ import { useCallback, useMemo } from "react";
 import { withUnistyles } from "react-native-unistyles";
 import { AttachmentLabel, AttachmentPill } from "@/components/attachment-pill";
 import type { ComposerAttachment } from "@/attachments/types";
+import { getComposerAttachmentPromptPreview } from "@/attachments/prompt-preview";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
 import { resolvePluginIcon } from "../icons";
 import type { PluginResourceComposerAttachment } from "./model";
@@ -53,6 +54,7 @@ export function PluginResourceAttachmentPill({
       onRemove={handleRemove}
       openAccessibilityLabel={openLabel(attachment.sourceTitle, attachment.item.identifier)}
       removeAccessibilityLabel={removeLabel(attachment.sourceTitle, attachment.item.identifier)}
+      details={getComposerAttachmentPromptPreview(attachment)}
       disabled={disabled}
     >
       <AttachmentLabel

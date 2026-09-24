@@ -348,6 +348,8 @@ export const zhCN: TranslationResources = {
       textAttachment: "文本附件",
       text: "文本",
       file: "文件",
+      showPrompt: "显示将发送给 Agent 的内容",
+      hidePrompt: "隐藏将发送给 Agent 的内容",
     },
     speak: {
       header: "已朗读",

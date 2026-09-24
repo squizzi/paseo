@@ -353,6 +353,8 @@ export const es: TranslationResources = {
       textAttachment: "Adjunto de texto",
       text: "Texto",
       file: "Archivo",
+      showPrompt: "Mostrar lo que esto envía al agente",
+      hidePrompt: "Ocultar lo que esto envía al agente",
     },
     speak: {
       header: "Habló",
