@@ -352,6 +352,8 @@ export const ptBR: TranslationResources = {
       textAttachment: "Anexo de texto",
       text: "Texto",
       file: "Arquivo",
+      showPrompt: "Mostrar o que isto envia ao agente",
+      hidePrompt: "Ocultar o que isto envia ao agente",
     },
     speak: {
       header: "Falou",

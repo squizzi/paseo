@@ -349,6 +349,8 @@ export const ko: TranslationResources = {
       textAttachment: "텍스트 첨부",
       text: "텍스트",
       file: "파일",
+      showPrompt: "에이전트에 보내는 내용 보기",
+      hidePrompt: "에이전트에 보내는 내용 숨기기",
     },
     speak: {
       header: "말함",

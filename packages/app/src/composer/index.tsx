@@ -157,6 +157,7 @@ import {
   getWorkspaceFileAttachmentKey,
   getWorkspaceFileAttachmentSubtitle,
 } from "@/attachments/workspace-file";
+import { getComposerAttachmentPromptPreview } from "@/attachments/prompt-preview";
 import {
   resolveWorkspaceFileDrop,
   type WorkspaceFileDragPayload,
@@ -180,7 +181,6 @@ type AttachmentListUpdater =
 const EMPTY_ATTACHMENT_SCOPE_KEYS: readonly string[] = [];
 
 function noop() {}
-const noopCallback = () => {};
 
 function resolveComposerButtonIconSize(): number {
   return isWeb ? ICON_SIZE.md : ICON_SIZE.lg;
@@ -810,6 +810,7 @@ function GithubAttachmentPill({
       onRemove={handleRemove}
       openAccessibilityLabel={openLabel(kindLabel, `${numberPrefix}${item.number}`)}
       removeAccessibilityLabel={removeLabel(kindLabel, `${numberPrefix}${item.number}`)}
+      details={getComposerAttachmentPromptPreview(attachment)}
       disabled={disabled}
     >
       <AttachmentLabel
@@ -844,10 +845,9 @@ function FileAttachmentPill({
   return (
     <AttachmentPill
       testID="composer-file-attachment-pill"
-      onOpen={noopCallback}
       onRemove={handleRemove}
-      openAccessibilityLabel={fileName}
       removeAccessibilityLabel={removeLabel}
+      details={getComposerAttachmentPromptPreview(attachment)}
       disabled={disabled}
     >
       <AttachmentLabel
@@ -881,10 +881,9 @@ function WorkspaceFileAttachmentPill({
   return (
     <AttachmentPill
       testID="composer-workspace-file-attachment-pill"
-      onOpen={noopCallback}
       onRemove={handleRemove}
-      openAccessibilityLabel={fileName}
       removeAccessibilityLabel={removeLabel}
+      details={getComposerAttachmentPromptPreview(attachment)}
       disabled={disabled}
     >
       <AttachmentLabel

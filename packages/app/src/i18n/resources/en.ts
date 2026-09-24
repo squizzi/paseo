@@ -345,6 +345,8 @@ export const en = {
       textAttachment: "Text attachment",
       text: "Text",
       file: "File",
+      showPrompt: "Show what this sends to the agent",
+      hidePrompt: "Hide what this sends to the agent",
     },
     speak: {
       header: "Spoke",

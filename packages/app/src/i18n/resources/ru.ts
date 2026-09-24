@@ -352,6 +352,8 @@ export const ru: TranslationResources = {
       textAttachment: "Текстовое вложение",
       text: "Текст",
       file: "Файл",
+      showPrompt: "Показать, что отправляется агенту",
+      hidePrompt: "Скрыть, что отправляется агенту",
     },
     speak: {
       header: "Сказал",
