@@ -36,15 +36,22 @@ export interface RetainedShimmerMetrics extends ShimmerMetrics {
   trackEnd: number;
 }
 
+export interface ShimmerLoopFields {
+  durationSeconds: number;
+  peakWidth: number;
+}
+
 /**
- * Keep the running sweep when the label grows. Changing duration or travel on
- * every extra word restarts the CSS/Reanimated loop and flashes the letters.
+ * Keep only the loop-defining fields when the label grows. Changing duration
+ * or peak width on every extra word restarts the CSS/Reanimated loop and
+ * flashes the letters. Track start/end stay live so the sweep still travels
+ * the full width of a label that keeps growing while loading.
  */
-export function retainShimmerSweep(input: {
+export function retainShimmerLoopFields(input: {
   isLoading: boolean;
-  live: ShimmerSweep;
-  retained: ShimmerSweep | null;
-}): ShimmerSweep | null {
+  live: ShimmerLoopFields;
+  retained: ShimmerLoopFields | null;
+}): ShimmerLoopFields | null {
   if (!input.isLoading) {
     return null;
   }
@@ -91,20 +98,23 @@ export function computeShimmerMetrics(input: ShimmerMetricsInput): ShimmerMetric
 }
 
 export function useRetainedShimmerMetrics(input: ShimmerMetricsInput): RetainedShimmerMetrics {
-  const retainedSweepRef = useRef<ShimmerSweep | null>(null);
+  const retainedFieldsRef = useRef<ShimmerLoopFields | null>(null);
   const liveMetrics = computeShimmerMetrics(input);
-  const sweep = retainShimmerSweep({
+  const retainedFields = retainShimmerLoopFields({
     isLoading: input.isLoading,
-    live: liveMetrics.sweep,
-    retained: retainedSweepRef.current,
+    live: {
+      durationSeconds: liveMetrics.sweep.durationSeconds,
+      peakWidth: liveMetrics.sweep.peakWidth,
+    },
+    retained: retainedFieldsRef.current,
   });
-  retainedSweepRef.current = sweep;
-  const displayed = sweep ?? liveMetrics.sweep;
+  retainedFieldsRef.current = retainedFields;
+  const loopFields = retainedFields ?? liveMetrics.sweep;
   return {
     ...liveMetrics,
-    shimmerDuration: displayed.durationSeconds,
-    peakWidth: displayed.peakWidth,
-    trackStart: displayed.trackStart,
-    trackEnd: displayed.trackEnd,
+    shimmerDuration: loopFields.durationSeconds,
+    peakWidth: loopFields.peakWidth,
+    trackStart: liveMetrics.sweep.trackStart,
+    trackEnd: liveMetrics.sweep.trackEnd,
   };
 }

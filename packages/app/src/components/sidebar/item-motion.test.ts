@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { MOTION_CLIP_AUTO } from "@/styles/motion-tokens";
 import {
   isNewSidebarMotionItem,
   rememberSidebarMotionItem,
@@ -9,7 +10,6 @@ import {
   shouldCommitSidebarItemMotionHydration,
   shouldMeasureSidebarItemEnterOffscreen,
   shouldRestoreSidebarItemMotionAfterExit,
-  SIDEBAR_ITEM_MOTION_AUTO_HEIGHT,
   sidebarProjectMotionKey,
   sidebarWorkspaceMotionKey,
 } from "./item-motion";
@@ -210,7 +210,7 @@ describe("sidebar item motion keys", () => {
     });
     expect(
       resolveSidebarItemMotionFrameStyle({
-        height: SIDEBAR_ITEM_MOTION_AUTO_HEIGHT,
+        height: MOTION_CLIP_AUTO,
         opacity: 1,
         offset: 0,
       }),
@@ -294,7 +294,7 @@ describe("sidebar collapse clip", () => {
       overflow: "hidden",
       position: "relative",
     });
-    expect(resolveSidebarCollapseClipFrameStyle(SIDEBAR_ITEM_MOTION_AUTO_HEIGHT)).toEqual({
+    expect(resolveSidebarCollapseClipFrameStyle(MOTION_CLIP_AUTO)).toEqual({
       height: "auto",
       overflow: "visible",
       position: "relative",

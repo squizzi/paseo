@@ -11,13 +11,16 @@ import Animated, {
   type SharedValue,
 } from "react-native-reanimated";
 import { isWeb } from "@/constants/platform";
+import { applyGrowthSize } from "@/components/collapse-clip-motion";
+import { useObservedSize } from "@/hooks/use-observed-size";
 import {
   MOTION_ARRIVE_DURATION_MS,
   MOTION_ARRIVE_EASING,
   MOTION_ARRIVE_OFFSET_PX,
   MOTION_ARRIVE_TIMING,
-  MOTION_BURST_DURATION_MS,
-  MOTION_BURST_TIMING,
+  MOTION_CLIP_AUTO,
+  resolveArriveFadeStyle,
+  resolveGrowthClipFrameStyle,
   resolveStreamBurstDuration,
 } from "@/styles/motion";
 import type { StreamItem } from "@/types/stream";
@@ -198,10 +201,7 @@ export function ChatEntryMotion({
     };
   }, [animateOnMount, progress, revision]);
 
-  const animatedStyle = useAnimatedStyle(() => ({
-    opacity: progress.value,
-    transform: [{ translateY: offsetPx * (1 - progress.value) }],
-  }));
+  const animatedStyle = useAnimatedStyle(() => resolveArriveFadeStyle(progress.value, offsetPx));
 
   return (
     <Animated.View style={[style, animatedStyle]} testID={testID} dataSet={dataSet}>
@@ -225,56 +225,6 @@ interface ChatGrowthClipProps {
   testID?: string;
 }
 
-interface ApplyGrowthHeightOptions {
-  easeInitial?: boolean;
-}
-
-export function applyGrowthHeight(
-  height: SharedValue<number>,
-  contentHeightRef: { current: number | null },
-  nextHeight: number,
-  options?: ApplyGrowthHeightOptions,
-) {
-  if (nextHeight <= 0) {
-    return;
-  }
-  const previousHeight = contentHeightRef.current;
-  if (previousHeight !== null && Math.abs(nextHeight - previousHeight) <= 0.5) {
-    return;
-  }
-  contentHeightRef.current = nextHeight;
-  if (previousHeight === null) {
-    cancelAnimation(height);
-    if (options?.easeInitial) {
-      height.value = 0;
-      height.value = withTiming(nextHeight, MOTION_ARRIVE_TIMING);
-      return;
-    }
-    height.value = nextHeight;
-    return;
-  }
-  if (nextHeight <= previousHeight + 0.5) {
-    cancelAnimation(height);
-    height.value = nextHeight;
-    return;
-  }
-  // Continue from the in-flight height. Snapping to the last target made
-  // character-paced reveal restart the arrive ease every frame, which reads as
-  // stutter. Keep clipping so the new line rises in; a catch-up or a lump
-  // bigger than one line uses the burst window so 200ms does not restart on
-  // every token.
-  cancelAnimation(height);
-  const visualHeight = height.value;
-  const duration = resolveStreamBurstDuration({
-    inFlight: visualHeight >= 0 && visualHeight < previousHeight - 0.5,
-    distancePx: nextHeight - Math.max(visualHeight, 0),
-  });
-  height.value = withTiming(
-    nextHeight,
-    duration === MOTION_BURST_DURATION_MS ? MOTION_BURST_TIMING : MOTION_ARRIVE_TIMING,
-  );
-}
-
 /** Clips in-place markdown growth so wrapped lines rise into view instead of popping. */
 export function ChatGrowthClip({
   children,
@@ -285,57 +235,33 @@ export function ChatGrowthClip({
   testID,
 }: ChatGrowthClipProps) {
   const contentHeightRef = useRef<number | null>(null);
-  const innerElementRef = useRef<HTMLElement | null>(null);
-  const height = useSharedValue(-1);
-  const setInnerRef = useCallback((node: unknown) => {
-    innerElementRef.current = isWeb && node instanceof HTMLElement ? node : null;
-  }, []);
+  const height = useSharedValue(MOTION_CLIP_AUTO);
 
   const applyMeasuredHeight = useCallback(
     (nextHeight: number) => {
-      applyGrowthHeight(height, contentHeightRef, nextHeight, { easeInitial });
+      applyGrowthSize(height, contentHeightRef, nextHeight, {
+        easeInitial,
+        resolveDuration: resolveStreamBurstDuration,
+      });
     },
     [easeInitial, height],
   );
 
+  const { setNodeRef, onLayout: onObservedLayout } = useObservedSize({
+    enabled,
+    axis: "height",
+    onSize: applyMeasuredHeight,
+  });
+
   const handleInnerLayout = useCallback(
     (event: LayoutChangeEvent) => {
       onLayout?.(event);
-      if (!isWeb) {
-        applyMeasuredHeight(event.nativeEvent.layout.height);
-      }
+      onObservedLayout(event);
     },
-    [applyMeasuredHeight, onLayout],
+    [onLayout, onObservedLayout],
   );
 
-  useLayoutEffect(() => {
-    if (!enabled || !isWeb || typeof ResizeObserver !== "function") {
-      return;
-    }
-    const node = innerElementRef.current;
-    if (!node) {
-      return;
-    }
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (entry) {
-        applyMeasuredHeight(entry.contentRect.height);
-      }
-    });
-    observer.observe(node);
-    applyMeasuredHeight(node.getBoundingClientRect().height);
-    return () => observer.disconnect();
-  }, [applyMeasuredHeight, enabled]);
-
-  const clipStyle = useAnimatedStyle(() => {
-    if (height.value < 0) {
-      return { overflow: "hidden" };
-    }
-    return {
-      height: height.value,
-      overflow: "hidden",
-    };
-  });
+  const clipStyle = useAnimatedStyle(() => resolveGrowthClipFrameStyle(height.value, "height"));
 
   if (!enabled) {
     return (
@@ -347,7 +273,7 @@ export function ChatGrowthClip({
 
   return (
     <Animated.View style={[style, clipStyle]} testID={testID}>
-      <View ref={setInnerRef} collapsable={false} onLayout={handleInnerLayout}>
+      <View ref={setNodeRef} collapsable={false} onLayout={handleInnerLayout}>
         {children}
       </View>
     </Animated.View>

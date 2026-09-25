@@ -9,12 +9,9 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { StyleSheet } from "react-native-unistyles";
-import { resolveCollapseClipResize } from "@/components/collapse-clip-motion";
-import {
-  resolveSidebarCollapseClipFrameStyle,
-  SIDEBAR_ITEM_MOTION_AUTO_HEIGHT,
-} from "@/components/sidebar/item-motion";
-import { MOTION_ARRIVE_TIMING, MOTION_EXIT_TIMING } from "@/styles/motion";
+import { applyCollapseClipResize } from "@/components/collapse-clip-motion";
+import { resolveSidebarCollapseClipFrameStyle } from "@/components/sidebar/item-motion";
+import { MOTION_CLIP_AUTO, MOTION_EXIT_TIMING } from "@/styles/motion";
 
 export function SidebarCollapseClip({
   expanded,
@@ -28,7 +25,7 @@ export function SidebarCollapseClip({
   testID: string;
 }) {
   const reducedMotion = useReducedMotion() === true;
-  const height = useSharedValue(expanded ? SIDEBAR_ITEM_MOTION_AUTO_HEIGHT : 0);
+  const height = useSharedValue(expanded ? MOTION_CLIP_AUTO : 0);
   const contentHeightRef = useRef(0);
   const targetHeightRef = useRef(0);
   const expandedRef = useRef(expanded);
@@ -61,20 +58,13 @@ export function SidebarCollapseClip({
       if (nextHeight > 0) {
         contentHeightRef.current = nextHeight;
       }
-      const decision = resolveCollapseClipResize({
+      applyCollapseClipResize({
         expanded,
         settledOpen: settledOpenRef.current,
         nextSize: nextHeight,
-        targetSize: targetHeightRef.current,
-      });
-      if (decision.action === "ignore") {
-        return;
-      }
-      targetHeightRef.current = decision.to;
-      height.value = withTiming(decision.to, MOTION_ARRIVE_TIMING, (finished) => {
-        if (finished) {
-          runOnJS(markSettledOpen)();
-        }
+        targetSizeRef: targetHeightRef,
+        size: height,
+        onSettled: markSettledOpen,
       });
     },
     [expanded, height, markSettledOpen],
@@ -84,13 +74,13 @@ export function SidebarCollapseClip({
     if (!expanded || !settledOpen) {
       return;
     }
-    height.value = SIDEBAR_ITEM_MOTION_AUTO_HEIGHT;
+    height.value = MOTION_CLIP_AUTO;
   }, [expanded, height, settledOpen]);
 
   useLayoutEffect(() => {
     if (reducedMotion) {
       cancelAnimation(height);
-      height.value = expanded ? SIDEBAR_ITEM_MOTION_AUTO_HEIGHT : 0;
+      height.value = expanded ? MOTION_CLIP_AUTO : 0;
       targetHeightRef.current = 0;
       settledOpenRef.current = expanded;
       setSettledOpen(expanded);

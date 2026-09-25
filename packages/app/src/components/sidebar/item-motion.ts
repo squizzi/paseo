@@ -1,6 +1,4 @@
 export const SIDEBAR_ITEM_MOTION_OFFSET = 8;
-/** Shared-value sentinel: do not constrain height so collapse/expand can reflow. */
-export const SIDEBAR_ITEM_MOTION_AUTO_HEIGHT = -1;
 
 export function sidebarProjectMotionKey(viewKey: string): string {
   return `project:${viewKey}`;

@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from "react-native";
+import { View, type StyleProp, type ViewStyle } from "react-native";
 import Animated, {
   cancelAnimation,
   runOnJS,
@@ -10,20 +10,18 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { StyleSheet } from "react-native-unistyles";
-import {
-  BADGE_COLLAPSE_AUTO_HEIGHT,
-  resolveBadgeCollapseClipFrameStyle,
-} from "@/components/badge-collapse-motion";
-import { resolveCollapseClipResize } from "@/components/collapse-clip-motion";
+import { applyCollapseClipResize } from "@/components/collapse-clip-motion";
 import { isWeb } from "@/constants/platform";
+import { useObservedSize } from "@/hooks/use-observed-size";
 import {
   MOTION_ARRIVE_TIMING,
+  MOTION_CLIP_AUTO,
   MOTION_CONTENT_DELAY_MS,
   MOTION_EXIT_TIMING,
   MOTION_MICRO_OFFSET_PX,
+  resolveArriveFadeStyle,
+  resolveGrowthClipFrameStyle,
 } from "@/styles/motion";
-
-export { BADGE_COLLAPSE_AUTO_HEIGHT, resolveBadgeCollapseClipFrameStyle };
 
 export interface ExpandableBadgeCollapseClipProps {
   expanded: boolean;
@@ -47,7 +45,7 @@ export function ExpandableBadgeCollapseClip({
   testID,
 }: ExpandableBadgeCollapseClipProps) {
   const reducedMotion = useReducedMotion() === true;
-  const height = useSharedValue(expanded ? BADGE_COLLAPSE_AUTO_HEIGHT : 0);
+  const height = useSharedValue(expanded ? MOTION_CLIP_AUTO : 0);
   const contentProgress = useSharedValue(expanded ? 1 : 0);
   const contentHeightRef = useRef(0);
   const targetHeightRef = useRef(0);
@@ -57,7 +55,6 @@ export function ExpandableBadgeCollapseClip({
   const [settledOpen, setSettledOpen] = useState(expanded);
   const settledOpenRef = useRef(expanded);
   settledOpenRef.current = settledOpen;
-  const innerElementRef = useRef<HTMLElement | null>(null);
   const lastContentRef = useRef<ReactNode>(null);
 
   if (expanded && renderDetails) {
@@ -87,73 +84,36 @@ export function ExpandableBadgeCollapseClip({
       if (nextHeight > 0) {
         contentHeightRef.current = nextHeight;
       }
-      const decision = resolveCollapseClipResize({
+      applyCollapseClipResize({
         expanded,
         settledOpen: settledOpenRef.current,
         nextSize: nextHeight,
-        targetSize: targetHeightRef.current,
-      });
-      if (decision.action === "ignore") {
-        return;
-      }
-      targetHeightRef.current = decision.to;
-      cancelAnimation(height);
-      if (height.value < 0) {
-        height.value = 0;
-      }
-      height.value = withTiming(decision.to, MOTION_ARRIVE_TIMING, (finished) => {
-        if (finished) {
-          runOnJS(markSettledOpen)();
-        }
+        targetSizeRef: targetHeightRef,
+        size: height,
+        onSettled: markSettledOpen,
       });
     },
     [expanded, height, markSettledOpen],
   );
 
-  const setInnerRef = useCallback((node: unknown) => {
-    innerElementRef.current = isWeb && node instanceof HTMLElement ? node : null;
-  }, []);
-
-  const handleInnerLayout = useCallback(
-    (event: LayoutChangeEvent) => {
-      if (!isWeb) {
-        handleMeasuredHeight(event.nativeEvent.layout.height);
-      }
-    },
-    [handleMeasuredHeight],
-  );
-
-  useLayoutEffect(() => {
-    if (!renderChildren || !isWeb || typeof ResizeObserver !== "function") {
-      return;
-    }
-    const node = innerElementRef.current;
-    if (!node) {
-      return;
-    }
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (entry) {
-        handleMeasuredHeight(entry.contentRect.height);
-      }
-    });
-    observer.observe(node);
-    handleMeasuredHeight(node.getBoundingClientRect().height);
-    return () => observer.disconnect();
-  }, [handleMeasuredHeight, renderChildren]);
+  const { setNodeRef, onLayout: onObservedLayout } = useObservedSize({
+    enabled: renderChildren,
+    axis: "height",
+    onSize: handleMeasuredHeight,
+  });
 
   useLayoutEffect(() => {
     if (!expanded || !settledOpen) {
       return;
     }
-    height.value = BADGE_COLLAPSE_AUTO_HEIGHT;
+    height.value = MOTION_CLIP_AUTO;
   }, [expanded, height, settledOpen]);
 
   useLayoutEffect(() => {
     if (reducedMotion) {
       cancelAnimation(height);
       cancelAnimation(contentProgress);
-      height.value = expanded ? BADGE_COLLAPSE_AUTO_HEIGHT : 0;
+      height.value = expanded ? MOTION_CLIP_AUTO : 0;
       contentProgress.value = expanded ? 1 : 0;
       targetHeightRef.current = 0;
       settledOpenRef.current = expanded;
@@ -213,11 +173,10 @@ export function ExpandableBadgeCollapseClip({
     });
   }, [contentProgress, expanded, height, onClosingChange, reducedMotion, unmountCollapsed]);
 
-  const clipStyle = useAnimatedStyle(() => resolveBadgeCollapseClipFrameStyle(height.value));
-  const contentStyle = useAnimatedStyle(() => ({
-    opacity: contentProgress.value,
-    transform: [{ translateY: MOTION_MICRO_OFFSET_PX * (1 - contentProgress.value) }],
-  }));
+  const clipStyle = useAnimatedStyle(() => resolveGrowthClipFrameStyle(height.value, "height"));
+  const contentStyle = useAnimatedStyle(() =>
+    resolveArriveFadeStyle(contentProgress.value, MOTION_MICRO_OFFSET_PX),
+  );
 
   if (!renderChildren && !expanded) {
     return null;
@@ -237,9 +196,9 @@ export function ExpandableBadgeCollapseClip({
       onPointerLeave={isWeb ? onHoverOut : undefined}
     >
       <Animated.View
-        ref={setInnerRef}
+        ref={setNodeRef}
         collapsable={false}
-        onLayout={handleInnerLayout}
+        onLayout={onObservedLayout}
         style={[settledOpen ? undefined : styles.clipInner, contentStyle]}
       >
         {content}

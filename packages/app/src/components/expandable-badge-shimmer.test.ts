@@ -1,37 +1,35 @@
 import { describe, expect, it } from "vitest";
 import {
   computeShimmerMetrics,
-  retainShimmerSweep,
-  type ShimmerSweep,
+  retainShimmerLoopFields,
+  type ShimmerLoopFields,
 } from "./expandable-badge-shimmer";
 
-function liveSweep(overrides: Partial<ShimmerSweep> = {}): ShimmerSweep {
+function loopFields(overrides: Partial<ShimmerLoopFields> = {}): ShimmerLoopFields {
   return {
     durationSeconds: 1.05,
     peakWidth: 42,
-    trackStart: -42,
-    trackEnd: 80,
     ...overrides,
   };
 }
 
-describe("retainShimmerSweep", () => {
-  it("keeps the original sweep while loading so extra words do not restart it", () => {
-    const retained = liveSweep();
+describe("retainShimmerLoopFields", () => {
+  it("keeps the original duration/peak width while loading so extra words do not restart it", () => {
+    const retained = loopFields();
     expect(
-      retainShimmerSweep({
+      retainShimmerLoopFields({
         isLoading: true,
-        live: liveSweep({ durationSeconds: 1.6, peakWidth: 88, trackEnd: 240 }),
+        live: loopFields({ durationSeconds: 1.6, peakWidth: 88 }),
         retained,
       }),
     ).toEqual(retained);
   });
 
   it("replaces a zero-width first capture once layout is known", () => {
-    const unmeasured = liveSweep({ peakWidth: 0, trackEnd: 0 });
-    const measured = liveSweep({ peakWidth: 42, trackEnd: 80 });
+    const unmeasured = loopFields({ peakWidth: 0 });
+    const measured = loopFields({ peakWidth: 42 });
     expect(
-      retainShimmerSweep({
+      retainShimmerLoopFields({
         isLoading: true,
         live: measured,
         retained: unmeasured,
@@ -39,19 +37,19 @@ describe("retainShimmerSweep", () => {
     ).toEqual(measured);
   });
 
-  it("captures the first loading sweep and clears it once idle", () => {
+  it("captures the first loading fields and clears them once idle", () => {
     expect(
-      retainShimmerSweep({
+      retainShimmerLoopFields({
         isLoading: true,
-        live: liveSweep(),
+        live: loopFields(),
         retained: null,
       }),
-    ).toEqual(liveSweep());
+    ).toEqual(loopFields());
     expect(
-      retainShimmerSweep({
+      retainShimmerLoopFields({
         isLoading: false,
-        live: liveSweep({ durationSeconds: 1.6 }),
-        retained: liveSweep(),
+        live: loopFields({ durationSeconds: 1.6 }),
+        retained: loopFields(),
       }),
     ).toBeNull();
   });

@@ -1,4 +1,3 @@
-export const EXPAND_WIDTH_AUTO = -1;
 export const EXPAND_WIDTH_FILL = -2;
 
 export interface ExpandWidthFrameStyle {

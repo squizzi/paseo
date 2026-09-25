@@ -3,6 +3,7 @@ import {
   canDesktopAppSidebarShare,
   resolveDesktopAppChromeLayout,
   resolveDesktopAppContentMinimum,
+  resolveDesktopSidebarChromePresence,
   resolveDesktopSidebarVisibility,
   resolveDesktopSidebarWidth,
 } from "@/components/desktop-sidebar-layout";
@@ -16,6 +17,30 @@ describe("desktop sidebar layout", () => {
         isMounted: true,
         isOpen: true,
         canShare: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps chrome on a desktop sidebar until its close eases out", () => {
+    expect(
+      resolveDesktopSidebarChromePresence({
+        isCompactLayout: false,
+        visible: false,
+        occupiesLayout: true,
+      }),
+    ).toBe(true);
+    expect(
+      resolveDesktopSidebarChromePresence({
+        isCompactLayout: false,
+        visible: false,
+        occupiesLayout: false,
+      }),
+    ).toBe(false);
+    expect(
+      resolveDesktopSidebarChromePresence({
+        isCompactLayout: true,
+        visible: false,
+        occupiesLayout: true,
       }),
     ).toBe(false);
   });

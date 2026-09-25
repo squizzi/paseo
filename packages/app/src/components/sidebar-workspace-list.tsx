@@ -165,7 +165,6 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import {
-  SIDEBAR_ITEM_MOTION_AUTO_HEIGHT,
   SIDEBAR_ITEM_MOTION_OFFSET,
   isNewSidebarMotionItem,
   rememberSidebarMotionItem,
@@ -177,7 +176,12 @@ import {
   sidebarProjectMotionKey,
   sidebarWorkspaceMotionKey,
 } from "@/components/sidebar/item-motion";
-import { MOTION_ARRIVE_TIMING, MOTION_EXIT_DURATION_MS, MOTION_EXIT_TIMING } from "@/styles/motion";
+import {
+  MOTION_ARRIVE_TIMING,
+  MOTION_CLIP_AUTO,
+  MOTION_EXIT_DURATION_MS,
+  MOTION_EXIT_TIMING,
+} from "@/styles/motion";
 
 const workspaceKeyExtractor = (workspace: SidebarWorkspacePlacement) => workspace.workspaceKey;
 
@@ -279,7 +283,7 @@ function useSidebarItemMotion(input: {
 }) {
   const offset = useSharedValue(input.entering ? -SIDEBAR_ITEM_MOTION_OFFSET : 0);
   const opacity = useSharedValue(input.entering ? 0 : 1);
-  const height = useSharedValue(input.entering ? 0 : SIDEBAR_ITEM_MOTION_AUTO_HEIGHT);
+  const height = useSharedValue(input.entering ? 0 : MOTION_CLIP_AUTO);
   const measuredHeight = useRef(0);
   const didArmEnter = useRef(false);
   const didArmExit = useRef(false);
@@ -315,7 +319,7 @@ function useSidebarItemMotion(input: {
       height.value = decision.from;
       height.value = withTiming(decision.to, MOTION_ARRIVE_TIMING, (finished) => {
         if (finished) {
-          height.value = SIDEBAR_ITEM_MOTION_AUTO_HEIGHT;
+          height.value = MOTION_CLIP_AUTO;
         }
       });
     },
@@ -345,11 +349,11 @@ function useSidebarItemMotion(input: {
       if (restoreHeight > 0) {
         height.value = withTiming(restoreHeight, MOTION_ARRIVE_TIMING, (finished) => {
           if (finished) {
-            height.value = SIDEBAR_ITEM_MOTION_AUTO_HEIGHT;
+            height.value = MOTION_CLIP_AUTO;
           }
         });
       } else {
-        height.value = SIDEBAR_ITEM_MOTION_AUTO_HEIGHT;
+        height.value = MOTION_CLIP_AUTO;
       }
       offset.value = withTiming(0, MOTION_ARRIVE_TIMING);
       opacity.value = withTiming(1, MOTION_ARRIVE_TIMING);
@@ -363,7 +367,7 @@ function useSidebarItemMotion(input: {
       opacity.value = 0;
       height.value = withTiming(measuredHeight.current, MOTION_ARRIVE_TIMING, (finished) => {
         if (finished) {
-          height.value = SIDEBAR_ITEM_MOTION_AUTO_HEIGHT;
+          height.value = MOTION_CLIP_AUTO;
         }
       });
       offset.value = withTiming(0, MOTION_ARRIVE_TIMING);

@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Text } from "react-native";
 import { isWeb } from "@/constants/platform";
 import { MOTION_ARRIVE_CSS, MOTION_BURST_DURATION_MS } from "@/styles/motion-tokens";
@@ -50,6 +50,12 @@ function ensureStreamWordFadeKeyframes() {
   streamWordFadeRegistered = true;
 }
 
+// Register at module scope so the keyframes exist before the first word
+// mounts. A useEffect fires after paint, which raced elements that were
+// already styled with `animation: paseo-stream-word-fade` against a
+// not-yet-defined @keyframes rule and left them stuck at opacity 0.
+ensureStreamWordFadeKeyframes();
+
 const STREAM_WORD_FADE_DATASET = { streamWordFade: "true" };
 
 function StreamWord({ children }: { children: string }) {
@@ -65,11 +71,6 @@ function StreamWord({ children }: { children: string }) {
  * on the whole span is the flash this exists to avoid.
  */
 export function StreamWordFade({ text, enabled }: { text: string; enabled: boolean }): ReactNode {
-  useEffect(() => {
-    if (enabled) {
-      ensureStreamWordFadeKeyframes();
-    }
-  }, [enabled]);
   if (!enabled || !isWeb) {
     return text;
   }

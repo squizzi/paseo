@@ -9,22 +9,16 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { StyleSheet } from "react-native-unistyles";
-import { isWeb } from "@/constants/platform";
-import { MOTION_ARRIVE_TIMING, MOTION_EXIT_TIMING } from "@/styles/motion";
-import { resolveCollapseClipResize } from "@/components/collapse-clip-motion";
+import { MOTION_CLIP_AUTO, MOTION_EXIT_TIMING } from "@/styles/motion";
+import { applyCollapseClipResize } from "@/components/collapse-clip-motion";
 import {
-  EXPAND_WIDTH_AUTO,
   EXPAND_WIDTH_FILL,
   resolveExpandWidthFrameStyle,
   shouldStretchExpandWidthTrack,
 } from "@/components/expand-width-motion";
+import { useObservedSize } from "@/hooks/use-observed-size";
 
-export {
-  EXPAND_WIDTH_AUTO,
-  EXPAND_WIDTH_FILL,
-  resolveExpandWidthFrameStyle,
-  shouldStretchExpandWidthTrack,
-};
+export { EXPAND_WIDTH_FILL, resolveExpandWidthFrameStyle, shouldStretchExpandWidthTrack };
 
 export function ExpandWidthClip({
   expanded,
@@ -40,7 +34,7 @@ export function ExpandWidthClip({
   testID?: string;
 }) {
   const reducedMotion = useReducedMotion() === true;
-  const width = useSharedValue(expanded ? EXPAND_WIDTH_FILL : EXPAND_WIDTH_AUTO);
+  const width = useSharedValue(expanded ? EXPAND_WIDTH_FILL : MOTION_CLIP_AUTO);
   const collapsedWidthRef = useRef(0);
   const contentWidthRef = useRef(0);
   const targetWidthRef = useRef(0);
@@ -51,7 +45,6 @@ export function ExpandWidthClip({
   const settledOpenRef = useRef(expanded);
   settledOpenRef.current = settledOpen;
   const [closing, setClosing] = useState(false);
-  const trackElementRef = useRef<HTMLElement | null>(null);
 
   const stretchTrack = shouldStretchExpandWidthTrack({
     expanded,
@@ -74,7 +67,7 @@ export function ExpandWidthClip({
     }
     setClosing(false);
     setSizeLocked(false);
-    width.value = EXPAND_WIDTH_AUTO;
+    width.value = MOTION_CLIP_AUTO;
     onClosingChange?.(false);
   }, [onClosingChange, width]);
 
@@ -87,42 +80,24 @@ export function ExpandWidthClip({
         }
         return;
       }
-      const decision = resolveCollapseClipResize({
+      applyCollapseClipResize({
         expanded,
         settledOpen: settledOpenRef.current,
         nextSize: nextWidth,
-        targetSize: targetWidthRef.current,
-      });
-      if (decision.action === "ignore") {
-        return;
-      }
-      targetWidthRef.current = decision.to;
-      cancelAnimation(width);
-      if (width.value < 0) {
-        const from = collapsedWidthRef.current;
-        width.value = from > 0 ? from : 0;
-      }
-      width.value = withTiming(decision.to, MOTION_ARRIVE_TIMING, (finished) => {
-        if (finished) {
-          runOnJS(markSettledOpen)();
-        }
+        targetSizeRef: targetWidthRef,
+        size: width,
+        fromSentinel: collapsedWidthRef.current,
+        onSettled: markSettledOpen,
       });
     },
     [expanded, markSettledOpen, stretchTrack, width],
   );
 
-  const setTrackRef = useCallback((node: unknown) => {
-    trackElementRef.current = isWeb && node instanceof HTMLElement ? node : null;
-  }, []);
-
-  const handleTrackLayout = useCallback(
-    (event: LayoutChangeEvent) => {
-      if (!isWeb) {
-        handleTrackWidth(event.nativeEvent.layout.width);
-      }
-    },
-    [handleTrackWidth],
-  );
+  const { setNodeRef: setTrackRef, onLayout: handleTrackLayout } = useObservedSize({
+    enabled: true,
+    axis: "width",
+    onSize: handleTrackWidth,
+  });
 
   const handleContentLayout = useCallback((event: LayoutChangeEvent) => {
     const nextWidth = event.nativeEvent.layout.width;
@@ -135,28 +110,9 @@ export function ExpandWidthClip({
   }, []);
 
   useLayoutEffect(() => {
-    if (!stretchTrack || !isWeb || typeof ResizeObserver !== "function") {
-      return;
-    }
-    const node = trackElementRef.current;
-    if (!node) {
-      return;
-    }
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (entry) {
-        handleTrackWidth(entry.contentRect.width);
-      }
-    });
-    observer.observe(node);
-    handleTrackWidth(node.getBoundingClientRect().width);
-    return () => observer.disconnect();
-  }, [handleTrackWidth, stretchTrack]);
-
-  useLayoutEffect(() => {
     if (reducedMotion) {
       cancelAnimation(width);
-      width.value = expanded ? EXPAND_WIDTH_FILL : EXPAND_WIDTH_AUTO;
+      width.value = expanded ? EXPAND_WIDTH_FILL : MOTION_CLIP_AUTO;
       targetWidthRef.current = 0;
       settledOpenRef.current = expanded;
       setSettledOpen(expanded);
@@ -198,7 +154,7 @@ export function ExpandWidthClip({
     targetWidthRef.current = to;
     if (from <= 0 || to <= 0 || Math.abs(from - to) <= 0.5) {
       cancelAnimation(width);
-      width.value = EXPAND_WIDTH_AUTO;
+      width.value = MOTION_CLIP_AUTO;
       setSizeLocked(false);
       setClosing(false);
       onClosingChange?.(false);

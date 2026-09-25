@@ -11,7 +11,9 @@ import {
   getDesktopWindowControlsPresentation,
   getDesktopWindowControlsWidth,
 } from "@/desktop/window-chrome-presentation";
-import { isNative } from "@/constants/platform";
+import { isNative, isWeb } from "@/constants/platform";
+import { MOTION_ARRIVE_CSS, MOTION_ARRIVE_DURATION_MS } from "@/styles/motion-tokens";
+import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 
 export type WindowChromeCorners = "none" | "top-left" | "top-right" | "both";
 type WindowChromeSafeAreaPlacement = "inline" | "below";
@@ -314,6 +316,14 @@ export function WindowChromeSafeArea({
     return {
       paddingLeft: paddingLeft + horizontalPadding,
       paddingRight: paddingRight + horizontalPadding,
+      // Corner ownership flips once the sidebar's own width ease finishes, so
+      // without this the traffic-light gutter pops into the content column
+      // instead of arriving alongside the sidebar's collapse.
+      ...(isWeb
+        ? inlineUnistylesStyle({
+            transition: `padding-left ${MOTION_ARRIVE_DURATION_MS}ms ${MOTION_ARRIVE_CSS}, padding-right ${MOTION_ARRIVE_DURATION_MS}ms ${MOTION_ARRIVE_CSS}`,
+          })
+        : null),
     };
   }, [corners, horizontalPadding, obstruction, placement]);
   const combinedStyle = useMemo(() => [style, safeAreaStyle], [safeAreaStyle, style]);

@@ -26,7 +26,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { arrayMove, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
-import { View, Text, type LayoutChangeEvent } from "react-native";
+import { StyleSheet as RNStyleSheet, View, Text, type LayoutChangeEvent } from "react-native";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -39,6 +39,7 @@ import {
   resolveExplorerSidebarDockSizes,
   resolveExplorerSidebarWidth,
 } from "@/components/explorer-sidebar-layout";
+import { useSidebarPanelWidth } from "@/components/sidebar/use-sidebar-panel-width";
 import { RetainedPanel } from "@/components/retained-panel";
 import {
   hasMultipleVisiblePanes,
@@ -439,16 +440,25 @@ export function SplitContainer({
       }),
     [requestedExplorerSidebarWidth, workspaceShellWidth],
   );
-  const renderExplorerSidebarDock = Boolean(
+  const explorerOpen = Boolean(
     !focusModeEnabled && explorerSidebarPane && explorerSidebarPane.hidden !== true,
   );
-  const mainColumnWindowChromeCorners = renderExplorerSidebarDock
+  const explorerPanel = useSidebarPanelWidth({
+    open: explorerOpen,
+    openWidth: explorerSidebarWidth,
+  });
+  const showExplorerDock = Boolean(explorerSidebarPane) && explorerPanel.occupiesLayout;
+  const mainColumnWindowChromeCorners = showExplorerDock
     ? removeWindowChromeCorner(inheritedWindowChromeCorners, "top-right")
     : inheritedWindowChromeCorners;
   const mainColumnStyle = styles.mainColumn;
   const explorerSidebarDockStyle = useMemo(
-    () => [styles.explorerSidebarDock, { width: explorerSidebarWidth }],
-    [explorerSidebarWidth],
+    () => [explorerDockStaticStyles.clip, explorerPanel.frameStyle],
+    [explorerPanel.frameStyle],
+  );
+  const explorerSidebarDockInnerStyle = useMemo(
+    () => [explorerDockStaticStyles.inner, explorerPanel.innerStyle],
+    [explorerPanel.innerStyle],
   );
   const handleWorkspaceShellLayout = useCallback((event: LayoutChangeEvent) => {
     const nextWidth = event.nativeEvent.layout.width;
@@ -702,38 +712,45 @@ export function SplitContainer({
               ) : null}
             </View>
           </WindowChromeRegion>
-          {renderExplorerSidebarDock && explorerSidebarPane ? (
+          {showExplorerDock && explorerSidebarPane ? (
             <>
-              <ResizeHandle
-                testID="workspace-explorer-sidebar-resize-handle"
-                direction="horizontal"
-                hitAreaAlignment="end"
-                groupId={EXPLORER_SIDEBAR_RESIZE_GROUP_ID}
-                index={0}
-                sizes={explorerSidebarDockSizes}
-                containerSize={workspaceShellWidth}
-                onPreviewResizeSplit={previewExplorerSidebarResize}
-                onResizeSplit={commitExplorerSidebarResize}
-              />
-              <View style={explorerSidebarDockStyle}>
-                <ExplorerSidebarDock
-                  pane={explorerSidebarPane}
-                  uiTabs={uiTabs}
-                  normalizedServerId={normalizedServerId}
-                  normalizedWorkspaceId={normalizedWorkspaceId}
-                  isWorkspaceFocused={isWorkspaceFocused}
-                  closingTabIds={closingTabIds}
-                  onSelectTab={onSelectTabInPane}
-                  onCloseTab={onCloseTab}
-                  onCreateNewTab={handleCreateExplorerTab}
-                  onMoveTabToMain={handleMoveExplorerTabToMain}
-                  buildPaneContentModel={buildPaneContentModel}
-                  onReorderTabsInPane={onReorderTabsInPane}
-                  activeDragTabId={activeDragTabId}
-                  tabDropPreview={tabDropPreview}
-                  headerAction={renderExplorerSidebarHeaderAction?.()}
+              {explorerOpen ? (
+                <ResizeHandle
+                  testID="workspace-explorer-sidebar-resize-handle"
+                  direction="horizontal"
+                  hitAreaAlignment="end"
+                  groupId={EXPLORER_SIDEBAR_RESIZE_GROUP_ID}
+                  index={0}
+                  sizes={explorerSidebarDockSizes}
+                  containerSize={workspaceShellWidth}
+                  onPreviewResizeSplit={previewExplorerSidebarResize}
+                  onResizeSplit={commitExplorerSidebarResize}
                 />
-              </View>
+              ) : null}
+              <Animated.View
+                pointerEvents={explorerOpen ? "auto" : "none"}
+                style={explorerSidebarDockStyle}
+              >
+                <Animated.View style={explorerSidebarDockInnerStyle}>
+                  <ExplorerSidebarDock
+                    pane={explorerSidebarPane}
+                    uiTabs={uiTabs}
+                    normalizedServerId={normalizedServerId}
+                    normalizedWorkspaceId={normalizedWorkspaceId}
+                    isWorkspaceFocused={isWorkspaceFocused}
+                    closingTabIds={closingTabIds}
+                    onSelectTab={onSelectTabInPane}
+                    onCloseTab={onCloseTab}
+                    onCreateNewTab={handleCreateExplorerTab}
+                    onMoveTabToMain={handleMoveExplorerTabToMain}
+                    buildPaneContentModel={buildPaneContentModel}
+                    onReorderTabsInPane={onReorderTabsInPane}
+                    activeDragTabId={activeDragTabId}
+                    tabDropPreview={tabDropPreview}
+                    headerAction={renderExplorerSidebarHeaderAction?.()}
+                  />
+                </Animated.View>
+              </Animated.View>
             </>
           ) : null}
         </View>
@@ -1394,12 +1411,6 @@ const styles = StyleSheet.create((theme) => ({
     minWidth: 0,
     minHeight: 0,
   },
-  explorerSidebarDock: {
-    flexShrink: 0,
-    minWidth: 240,
-    minHeight: 0,
-    backgroundColor: theme.colors.surfaceSidebar,
-  },
   group: {
     flex: 1,
     minWidth: 0,
@@ -1449,3 +1460,14 @@ const styles = StyleSheet.create((theme) => ({
     flexShrink: 1,
   },
 }));
+
+const explorerDockStaticStyles = RNStyleSheet.create({
+  clip: {
+    flexShrink: 0,
+    minHeight: 0,
+  },
+  inner: {
+    minWidth: 240,
+    minHeight: 0,
+  },
+});

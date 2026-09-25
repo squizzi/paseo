@@ -26,6 +26,8 @@ export const MOTION_BURST_HEIGHT_PX = 28;
 
 export const MOTION_ARRIVE_OFFSET_PX = 6;
 export const MOTION_MICRO_OFFSET_PX = 4;
+/** Shared-value sentinel: do not constrain this axis so content can reflow. */
+export const MOTION_CLIP_AUTO = -1;
 
 /**
  * Quiet wraps keep the arrive window. A catch-up or a lump bigger than one
@@ -75,4 +77,40 @@ export function motionOverlayArriveFromAnchor(side: MotionOverlaySide): MotionTr
 
 export function motionStaggerDelayMs(index: number): number {
   return index * MOTION_STAGGER_MS;
+}
+
+export interface ArriveFadeStyle {
+  opacity: number;
+  transform: [{ translateY: number }];
+}
+
+/** Opacity plus a short rise. Chat rows and badge details share this land. */
+export function resolveArriveFadeStyle(progress: number, offsetPx: number): ArriveFadeStyle {
+  "worklet";
+  return {
+    opacity: progress,
+    transform: [{ translateY: offsetPx * (1 - progress) }],
+  };
+}
+
+export type GrowthClipAxis = "width" | "height";
+
+export interface GrowthClipFrameStyle {
+  overflow: "hidden";
+  width?: number;
+  height?: number;
+}
+
+export function resolveGrowthClipFrameStyle(
+  size: number,
+  axis: GrowthClipAxis,
+): GrowthClipFrameStyle {
+  "worklet";
+  if (size < 0) {
+    return { overflow: "hidden" };
+  }
+  if (axis === "width") {
+    return { width: size, overflow: "hidden" };
+  }
+  return { height: size, overflow: "hidden" };
 }

@@ -245,6 +245,12 @@ function ensureWebToolCallShimmerKeyframes() {
   webToolCallShimmerRegistered = true;
 }
 
+// Register at module scope so the keyframes exist before the first shimmer
+// overlay paints. A useEffect fires after paint, which raced the overlay's
+// `animation: paseo-toolcall-shimmer` against a not-yet-defined @keyframes
+// rule and left the sweep stuck instead of animating across the label.
+ensureWebToolCallShimmerKeyframes();
+
 function getWheelEventElementTarget(event: WheelEvent, fallback: HTMLElement): HTMLElement {
   const { target } = event;
   if (target instanceof HTMLElement) {
@@ -2954,13 +2960,6 @@ export const ExpandableBadge = memo(function ExpandableBadge({
     },
     [shouldMeasureWebShimmer, secondaryLabel],
   );
-
-  useEffect(() => {
-    if (!isWebShimmer) {
-      return;
-    }
-    ensureWebToolCallShimmerKeyframes();
-  }, [isWebShimmer]);
 
   useDetailWheelPropagationBlocker({
     detailWrapperRef,

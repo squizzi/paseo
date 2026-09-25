@@ -1,15 +1,11 @@
 import { useCallback, useLayoutEffect, useRef, type ReactNode } from "react";
 import { Text, View, type LayoutChangeEvent, type StyleProp, type TextStyle } from "react-native";
-import Animated, {
-  cancelAnimation,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from "react-native-reanimated";
+import Animated, { useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { StyleSheet } from "react-native-unistyles";
 import { StreamWordFade } from "@/agent-stream/stream-word-fade";
-import { isWeb } from "@/constants/platform";
-import { MOTION_ARRIVE_TIMING } from "@/styles/motion";
+import { applyGrowthSize } from "@/components/collapse-clip-motion";
+import { useObservedSize } from "@/hooks/use-observed-size";
+import { MOTION_CLIP_AUTO, resolveGrowthClipFrameStyle } from "@/styles/motion";
 import { splitGrowingLabel } from "./growing-label-parts";
 
 interface GrowingLabelProps {
@@ -33,76 +29,23 @@ export function GrowingLabel({
     previousTextRef.current = text;
   }, [text]);
   const contentWidthRef = useRef<number | null>(null);
-  const innerElementRef = useRef<HTMLElement | null>(null);
-  const width = useSharedValue(-1);
+  const width = useSharedValue(MOTION_CLIP_AUTO);
 
   const applyMeasuredWidth = useCallback(
     (nextWidth: number) => {
-      if (nextWidth <= 0) {
-        return;
-      }
-      const previousWidth = contentWidthRef.current;
-      if (previousWidth !== null && Math.abs(nextWidth - previousWidth) <= 0.5) {
-        return;
-      }
-      contentWidthRef.current = nextWidth;
-      if (previousWidth === null) {
-        cancelAnimation(width);
-        width.value = nextWidth;
-        return;
-      }
-      if (nextWidth <= previousWidth + 0.5) {
-        cancelAnimation(width);
-        width.value = nextWidth;
-        return;
-      }
-      cancelAnimation(width);
-      width.value = withTiming(nextWidth, MOTION_ARRIVE_TIMING);
+      applyGrowthSize(width, contentWidthRef, nextWidth);
     },
     [width],
   );
 
-  const setInnerRef = useCallback((node: unknown) => {
-    innerElementRef.current = isWeb && node instanceof HTMLElement ? node : null;
-  }, []);
-
-  const handleInnerLayout = useCallback(
-    (event: LayoutChangeEvent) => {
-      if (!isWeb) {
-        applyMeasuredWidth(event.nativeEvent.layout.width);
-      }
-    },
-    [applyMeasuredWidth],
-  );
-
-  useLayoutEffect(() => {
-    if (!isWeb || typeof ResizeObserver !== "function") {
-      return;
-    }
-    const node = innerElementRef.current;
-    if (!node) {
-      return;
-    }
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (entry) {
-        applyMeasuredWidth(entry.contentRect.width);
-      }
-    });
-    observer.observe(node);
-    applyMeasuredWidth(node.getBoundingClientRect().width);
-    return () => observer.disconnect();
-  }, [applyMeasuredWidth, text]);
-
-  const clipStyle = useAnimatedStyle(() => {
-    if (width.value < 0) {
-      return { overflow: "hidden" as const };
-    }
-    return {
-      width: width.value,
-      overflow: "hidden" as const,
-    };
+  const { setNodeRef, onLayout: onObservedLayout } = useObservedSize({
+    enabled: true,
+    axis: "width",
+    onSize: applyMeasuredWidth,
+    revision: text,
   });
+
+  const clipStyle = useAnimatedStyle(() => resolveGrowthClipFrameStyle(width.value, "width"));
 
   const incoming: ReactNode =
     fadeIncoming && parts.incoming.length > 0 ? (
@@ -113,7 +56,7 @@ export function GrowingLabel({
 
   return (
     <Animated.View style={[styles.clip, clipStyle]}>
-      <View ref={setInnerRef} collapsable={false} onLayout={handleInnerLayout} style={styles.inner}>
+      <View ref={setNodeRef} collapsable={false} onLayout={onObservedLayout} style={styles.inner}>
         <Text style={style} numberOfLines={numberOfLines} onLayout={onLayout}>
           {parts.prefix}
           {incoming}

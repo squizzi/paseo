@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   MOTION_ARRIVE_DURATION_MS,
+  MOTION_ARRIVE_OFFSET_PX,
   MOTION_BURST_DURATION_MS,
   MOTION_BURST_HEIGHT_PX,
+  MOTION_CLIP_AUTO,
   MOTION_CONTENT_DELAY_MS,
   MOTION_EXIT_DURATION_MS,
   MOTION_MICRO_OFFSET_PX,
@@ -11,6 +13,8 @@ import {
   MOTION_STAGGER_MS,
   motionOverlayArriveFromAnchor,
   motionStaggerDelayMs,
+  resolveArriveFadeStyle,
+  resolveGrowthClipFrameStyle,
   resolveStreamBurstDuration,
 } from "./motion-tokens";
 
@@ -86,5 +90,34 @@ describe("stream burst duration", () => {
         quietDurationMs: 160,
       }),
     ).toBe(160);
+  });
+});
+
+describe("arrive fade style", () => {
+  it("rises from the offset and lands at rest", () => {
+    expect(resolveArriveFadeStyle(0, MOTION_ARRIVE_OFFSET_PX)).toEqual({
+      opacity: 0,
+      transform: [{ translateY: MOTION_ARRIVE_OFFSET_PX }],
+    });
+    expect(resolveArriveFadeStyle(1, MOTION_ARRIVE_OFFSET_PX)).toEqual({
+      opacity: 1,
+      transform: [{ translateY: 0 }],
+    });
+  });
+});
+
+describe("growth clip frame style", () => {
+  it("leaves the axis unconstrained until a measured size arrives", () => {
+    expect(resolveGrowthClipFrameStyle(MOTION_CLIP_AUTO, "height")).toEqual({
+      overflow: "hidden",
+    });
+    expect(resolveGrowthClipFrameStyle(120, "height")).toEqual({
+      height: 120,
+      overflow: "hidden",
+    });
+    expect(resolveGrowthClipFrameStyle(80, "width")).toEqual({
+      width: 80,
+      overflow: "hidden",
+    });
   });
 });

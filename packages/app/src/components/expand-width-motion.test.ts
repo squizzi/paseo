@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { MOTION_CLIP_AUTO } from "@/styles/motion-tokens";
 import {
-  EXPAND_WIDTH_AUTO,
   EXPAND_WIDTH_FILL,
   resolveExpandWidthFrameStyle,
   shouldStretchExpandWidthTrack,
@@ -21,7 +21,7 @@ describe("expand width frame style", () => {
       maxWidth: "100%",
       overflow: "hidden",
     });
-    expect(resolveExpandWidthFrameStyle(EXPAND_WIDTH_AUTO)).toEqual({
+    expect(resolveExpandWidthFrameStyle(MOTION_CLIP_AUTO)).toEqual({
       maxWidth: "100%",
       overflow: "visible",
     });

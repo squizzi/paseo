@@ -54,6 +54,7 @@ import {
   canDesktopAppSidebarShare,
   resolveDesktopAppChromeLayout,
   resolveDesktopAppContentMinimum,
+  resolveDesktopSidebarChromePresence,
   resolveDesktopSidebarVisibility,
 } from "@/components/desktop-sidebar-layout";
 import { isNative, isWeb } from "@/constants/platform";
@@ -530,9 +531,14 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
       viewportWidth,
     }),
   });
+  const [sidebarOccupiesLayout, setSidebarOccupiesLayout] = useState(desktopSidebarVisible);
   const hasTopLeftWindowControls = useHasWindowChromeObstruction("top-left");
   const appChromeLayout = resolveDesktopAppChromeLayout({
-    desktopSidebarRendered: desktopSidebarVisible,
+    desktopSidebarRendered: resolveDesktopSidebarChromePresence({
+      isCompactLayout,
+      visible: desktopSidebarVisible,
+      occupiesLayout: sidebarOccupiesLayout,
+    }),
     hasTopLeftWindowControls,
     sidebarControlsEnabled: chromeEnabled && !isWorkspaceFocusModeEnabled,
   });
@@ -541,6 +547,7 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
       mounted={isCompactLayout ? chromeEnabled : desktopSidebarMounted}
       visible={isCompactLayout ? chromeEnabled : desktopSidebarVisible}
       keyboardShortcutsEnabled={keyboardShortcutsEnabled}
+      onOccupiesLayoutChange={setSidebarOccupiesLayout}
     />
   );
   let themedSidebarChrome = sidebarChrome;
@@ -630,10 +637,12 @@ function SidebarChrome({
   mounted,
   visible,
   keyboardShortcutsEnabled,
+  onOccupiesLayoutChange,
 }: {
   mounted: boolean;
   visible: boolean;
   keyboardShortcutsEnabled: boolean;
+  onOccupiesLayoutChange?: (occupies: boolean) => void;
 }) {
   const isCompactLayout = useIsCompactFormFactor();
   const isMobileActive = useIsMobilePanelActive("agent-list");
@@ -641,7 +650,9 @@ function SidebarChrome({
   const active = visible && (isCompactLayout ? isMobileActive : isDesktopOpen);
   return (
     <SidebarModelProvider active={active}>
-      {mounted ? <LeftSidebar active={active} /> : null}
+      {mounted ? (
+        <LeftSidebar active={active} onOccupiesLayoutChange={onOccupiesLayoutChange} />
+      ) : null}
       <WorkspaceShortcutTargetsSubscriber enabled={keyboardShortcutsEnabled} />
     </SidebarModelProvider>
   );

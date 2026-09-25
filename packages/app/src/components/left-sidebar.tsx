@@ -11,12 +11,13 @@ import {
   type PressableStateCallbackType,
 } from "react-native";
 import { Gesture } from "react-native-gesture-handler";
-import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
+import Animated, { cancelAnimation, runOnJS } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
 import { resolveDesktopSidebarWidth } from "@/components/desktop-sidebar-layout";
+import { useSidebarPanelWidth } from "@/components/sidebar/use-sidebar-panel-width";
 import {
   SIDEBAR_RESIZE_ACTIVATION_OFFSET,
   SIDEBAR_RESIZE_FAIL_OFFSET,
@@ -103,9 +104,16 @@ interface MobileSidebarProps extends SidebarSharedProps {
 interface DesktopSidebarProps extends SidebarSharedProps {
   insetsTop: number;
   active: boolean;
+  onOccupiesLayoutChange?: (occupies: boolean) => void;
 }
 
-export const LeftSidebar = memo(function LeftSidebar({ active }: { active: boolean }) {
+export const LeftSidebar = memo(function LeftSidebar({
+  active,
+  onOccupiesLayoutChange,
+}: {
+  active: boolean;
+  onOccupiesLayoutChange?: (occupies: boolean) => void;
+}) {
   const { theme } = useUnistyles();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
@@ -259,6 +267,7 @@ export const LeftSidebar = memo(function LeftSidebar({ active }: { active: boole
           {...sharedProps}
           insetsTop={insets.top}
           active={active}
+          onOccupiesLayoutChange={onOccupiesLayoutChange}
           handleOpenProject={handleOpenProjectDesktop}
           handleImportSession={openImportSession}
           handleSettings={handleSettingsDesktop}
@@ -654,6 +663,7 @@ function DesktopSidebar({
   handleOpenHostSettings,
   insetsTop,
   active,
+  onOccupiesLayoutChange,
 }: DesktopSidebarProps) {
   const ownsTopLeft = useOwnsWindowChromeCorner("top-left");
   const hasActiveHostFilter = useSidebarViewStore((state) => state.hostFilters.length > 0);
@@ -664,16 +674,16 @@ function DesktopSidebar({
     requestedWidth: sidebarWidth,
     viewportWidth,
   });
+  const panel = useSidebarPanelWidth({
+    open: active,
+    openWidth: visibleSidebarWidth,
+    onOccupiesLayoutChange,
+  });
 
   const startWidthRef = useRef(visibleSidebarWidth);
-  const resizeWidth = useSharedValue(visibleSidebarWidth);
   const [resizePressed, setResizePressed] = useState(false);
   const showResizeGrip = useCallback(() => setResizePressed(true), []);
   const hideResizeGrip = useCallback(() => setResizePressed(false), []);
-
-  useEffect(() => {
-    resizeWidth.value = visibleSidebarWidth;
-  }, [resizeWidth, visibleSidebarWidth]);
 
   const resizeGesture = useMemo(
     () =>
@@ -689,25 +699,26 @@ function DesktopSidebar({
         .failOffsetY([-SIDEBAR_RESIZE_FAIL_OFFSET, SIDEBAR_RESIZE_FAIL_OFFSET])
         .onStart((event) => {
           startWidthRef.current = visibleSidebarWidth - event.translationX;
-          resizeWidth.value = visibleSidebarWidth;
+          cancelAnimation(panel.width);
+          panel.width.value = visibleSidebarWidth;
         })
         .onUpdate((event) => {
           // Dragging right (positive translationX) increases width
           const newWidth = startWidthRef.current + event.translationX;
-          resizeWidth.value = resolveDesktopSidebarWidth({
+          panel.width.value = resolveDesktopSidebarWidth({
             requestedWidth: newWidth,
             viewportWidth,
           });
         })
         .onEnd(() => {
-          runOnJS(setSidebarWidth)(resizeWidth.value);
+          runOnJS(setSidebarWidth)(panel.width.value);
         })
         .onFinalize(() => {
           scheduleOnRN(hideResizeGrip);
         }),
     [
       hideResizeGrip,
-      resizeWidth,
+      panel.width,
       setSidebarWidth,
       showResizeGrip,
       viewportWidth,
@@ -715,17 +726,13 @@ function DesktopSidebar({
     ],
   );
 
-  const resizeAnimatedStyle = useAnimatedStyle(() => ({
-    width: resizeWidth.value,
-  }));
-
   const desktopSidebarStyle = useMemo(
-    () => [
-      staticStyles.desktopSidebar,
-      !active && staticStyles.desktopSidebarHidden,
-      resizeAnimatedStyle,
-    ],
-    [active, resizeAnimatedStyle],
+    () => [staticStyles.desktopSidebar, panel.frameStyle],
+    [panel.frameStyle],
+  );
+  const desktopSidebarInnerStyle = useMemo(
+    () => [staticStyles.desktopSidebarInner, panel.innerStyle],
+    [panel.innerStyle],
   );
   const desktopSidebarBorderStyle = useMemo(
     () => [styles.desktopSidebarBorder, { flex: 1, paddingTop: insetsTop }],
@@ -742,74 +749,76 @@ function DesktopSidebar({
       pointerEvents={active ? "auto" : "none"}
       style={desktopSidebarStyle}
     >
-      <View style={desktopSidebarBorderStyle}>
-        <View style={styles.sidebarDragArea}>
-          {ownsTopLeft || DEV_BUILD_LABEL ? (
-            <View style={styles.desktopChromeRow}>
+      <Animated.View style={desktopSidebarInnerStyle}>
+        <View style={desktopSidebarBorderStyle}>
+          <View style={styles.sidebarDragArea}>
+            {ownsTopLeft || DEV_BUILD_LABEL ? (
+              <View style={styles.desktopChromeRow}>
+                <TitlebarDragRegion />
+                {DEV_BUILD_LABEL ? (
+                  <View
+                    pointerEvents="none"
+                    style={styles.devBuildBadge}
+                    testID="dev-build-label"
+                    accessibilityLabel={`Development build: ${DEV_BUILD_LABEL}`}
+                  >
+                    <GitBranch size={12} color={theme.colors.accentForeground} />
+                    <Text numberOfLines={1} ellipsizeMode="tail" style={styles.devBuildBadgeText}>
+                      {DEV_BUILD_LABEL}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : (
               <TitlebarDragRegion />
-              {DEV_BUILD_LABEL ? (
-                <View
-                  pointerEvents="none"
-                  style={styles.devBuildBadge}
-                  testID="dev-build-label"
-                  accessibilityLabel={`Development build: ${DEV_BUILD_LABEL}`}
-                >
-                  <GitBranch size={12} color={theme.colors.accentForeground} />
-                  <Text numberOfLines={1} ellipsizeMode="tail" style={styles.devBuildBadgeText}>
-                    {DEV_BUILD_LABEL}
-                  </Text>
-                </View>
-              ) : null}
-            </View>
+            )}
+            <SidebarNavRows style={sidebarHeaderGroupStyle} />
+          </View>
+
+          {isInitialLoad && !hasActiveHostFilter ? (
+            <SidebarAgentListSkeleton />
           ) : (
-            <TitlebarDragRegion />
+            <SidebarWorkspaceList
+              collapsedProjectKeys={collapsedProjectKeys}
+              onToggleProjectCollapsed={toggleProjectCollapsed}
+              shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
+              groupMode={groupMode}
+              workspaceGroups={workspaceGroups}
+              projectIconTargets={projectIconTargets}
+              pinnedGroups={pinnedGroups}
+              projects={projects}
+              hasProjectsBeforeFilter={hasProjectsBeforeFilter}
+              hasActiveProjectFilter={hasActiveProjectFilter}
+              workspaceEntriesByKey={workspaceEntriesByKey}
+              isRefreshing={isManualRefresh && isRevalidating}
+              onRefresh={handleRefresh}
+              onAddProject={handleOpenProject}
+              onImportSession={handleImportSession}
+              itemMotionReady={itemMotionReady}
+              listHeaderComponent={workspacesSectionHeaderElement}
+            />
           )}
-          <SidebarNavRows style={sidebarHeaderGroupStyle} />
-        </View>
 
-        {isInitialLoad && !hasActiveHostFilter ? (
-          <SidebarAgentListSkeleton />
-        ) : (
-          <SidebarWorkspaceList
-            collapsedProjectKeys={collapsedProjectKeys}
-            onToggleProjectCollapsed={toggleProjectCollapsed}
-            shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
-            groupMode={groupMode}
-            workspaceGroups={workspaceGroups}
-            projectIconTargets={projectIconTargets}
-            pinnedGroups={pinnedGroups}
-            projects={projects}
-            hasProjectsBeforeFilter={hasProjectsBeforeFilter}
-            hasActiveProjectFilter={hasActiveProjectFilter}
-            workspaceEntriesByKey={workspaceEntriesByKey}
-            isRefreshing={isManualRefresh && isRevalidating}
-            onRefresh={handleRefresh}
-            onAddProject={handleOpenProject}
-            onImportSession={handleImportSession}
-            itemMotionReady={itemMotionReady}
-            listHeaderComponent={workspacesSectionHeaderElement}
+          <SidebarCalloutSlot />
+
+          <SidebarFooter
+            theme={theme}
+            handleOpenProject={handleOpenProject}
+            handleImportSession={handleImportSession}
+            handleSettings={handleSettings}
+            labels={labels}
+            handleAddHost={handleAddHost}
+            handleOpenHostSettings={handleOpenHostSettings}
           />
-        )}
 
-        <SidebarCalloutSlot />
-
-        <SidebarFooter
-          theme={theme}
-          handleOpenProject={handleOpenProject}
-          handleImportSession={handleImportSession}
-          handleSettings={handleSettings}
-          labels={labels}
-          handleAddHost={handleAddHost}
-          handleOpenHostSettings={handleOpenHostSettings}
-        />
-
-        <SidebarResizeHandle
-          edge="right"
-          gesture={resizeGesture}
-          pressed={resizePressed}
-          testID="left-sidebar-resize-handle"
-        />
-      </View>
+          <SidebarResizeHandle
+            edge="right"
+            gesture={resizeGesture}
+            pressed={resizePressed}
+            testID="left-sidebar-resize-handle"
+          />
+        </View>
+      </Animated.View>
     </Animated.View>
   );
 }
@@ -845,8 +854,9 @@ const staticStyles = RNStyleSheet.create({
   desktopSidebar: {
     position: "relative" as const,
   },
-  desktopSidebarHidden: {
-    display: "none",
+  desktopSidebarInner: {
+    flex: 1,
+    minHeight: 0,
   },
 });
 
