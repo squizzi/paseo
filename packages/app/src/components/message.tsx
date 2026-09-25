@@ -52,13 +52,30 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
+  withSpring,
   withTiming,
 } from "react-native-reanimated";
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Rect, Stop } from "react-native-svg";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { MarkdownRenderer, type MarkdownStyles } from "@/components/markdown/renderer";
 import { ExpandableBadgeCollapseClip } from "@/components/badge-collapse-clip";
-import { ChatGrowthClip, chatLayoutTransition } from "@/agent-stream/chat-entry-motion";
+import {
+  ChatGrowthClip,
+  chatLayoutTransition,
+  ChatEntryMotion,
+} from "@/agent-stream/chat-entry-motion";
+import { StreamWordFade } from "@/agent-stream/stream-word-fade";
+import { GrowingLabel } from "@/components/growing-label";
+import { useRetainedShimmerMetrics } from "@/components/expandable-badge-shimmer";
+import {
+  MOTION_CROSSFADE_TIMING,
+  MOTION_HOVER_SCALE,
+  MOTION_HOVER_TIMING,
+  MOTION_MICRO_OFFSET_PX,
+  MOTION_PRESS_SCALE,
+  MOTION_PRESS_SPRING,
+  motionStaggerDelayMs,
+} from "@/styles/motion";
 import type { TaskActivity, TodoEntry, UserMessageImageAttachment } from "@/types/stream";
 import type { AgentAttachment } from "@getpaseo/protocol/messages";
 import type { ToolCallDetail } from "@getpaseo/protocol/agent-types";
@@ -339,6 +356,11 @@ const userMessageStylesheet = StyleSheet.create((theme) => ({
     maxWidth: "100%",
     cursor: "auto",
   },
+  contentExpanded: {
+    alignSelf: "stretch",
+    width: "100%",
+    alignItems: "stretch",
+  },
   containerSpacing: {
     marginBottom: theme.spacing[1],
   },
@@ -356,6 +378,10 @@ const userMessageStylesheet = StyleSheet.create((theme) => ({
     paddingVertical: theme.spacing[4],
     minWidth: 0,
     flexShrink: 1,
+  },
+  bubbleExpanded: {
+    alignSelf: "stretch",
+    width: "100%",
   },
   text: {
     color: theme.colors.foreground,
@@ -376,6 +402,10 @@ const userMessageStylesheet = StyleSheet.create((theme) => ({
     flexDirection: "row",
     gap: theme.spacing[2],
     flexWrap: "wrap",
+  },
+  attachmentPreviewExpanded: {
+    alignSelf: "stretch",
+    width: "100%",
   },
   imagePreviewSpacing: {
     marginBottom: theme.spacing[2],
@@ -424,6 +454,30 @@ function UserMessageImagePill({ image, onOpen, accessibilityLabel }: UserMessage
   );
 }
 
+function UserMessageAttachmentFrame({
+  stretchId,
+  onStretchChange,
+  details,
+  testID,
+  children,
+}: {
+  stretchId: string;
+  onStretchChange: (id: string, stretch: boolean) => void;
+  details?: string | null;
+  testID?: string;
+  children: ReactNode;
+}) {
+  const handleStretchChange = useCallback(
+    (stretch: boolean) => onStretchChange(stretchId, stretch),
+    [onStretchChange, stretchId],
+  );
+  return (
+    <AttachmentFrame details={details} testID={testID} onStretchChange={handleStretchChange}>
+      {children}
+    </AttachmentFrame>
+  );
+}
+
 const MESSAGE_TEXT_DATASET = { messageText: "true" };
 
 export const UserMessage = memo(function UserMessage({
@@ -461,6 +515,21 @@ export const UserMessage = memo(function UserMessage({
   );
   const rewindMutation = useRewindAgentMutation({ serverId, agentId, client, messageId });
 
+  const stretchingIdsRef = useRef(new Set<string>());
+  const [shellStretch, setShellStretch] = useState(false);
+  const handleAttachmentStretchChange = useCallback((id: string, stretch: boolean) => {
+    const ids = stretchingIdsRef.current;
+    if (stretch === ids.has(id)) {
+      return;
+    }
+    if (stretch) {
+      ids.add(id);
+    } else {
+      ids.delete(id);
+    }
+    setShellStretch(ids.size > 0);
+  }, []);
+
   const handlePointerEnter = useCallback(() => setIsHovered(true), []);
   const handlePointerLeave = useCallback(() => setIsHovered(false), []);
   const getMessageContent = useCallback(() => message, [message]);
@@ -493,8 +562,23 @@ export const UserMessage = memo(function UserMessage({
     () => [
       userMessageStylesheet.attachmentPreviewContainer,
       hasText ? userMessageStylesheet.imagePreviewSpacing : undefined,
+      shellStretch ? userMessageStylesheet.attachmentPreviewExpanded : undefined,
     ],
-    [hasText],
+    [hasText, shellStretch],
+  );
+  const contentStyle = useMemo(
+    () => [
+      userMessageStylesheet.content,
+      shellStretch ? userMessageStylesheet.contentExpanded : undefined,
+    ],
+    [shellStretch],
+  );
+  const bubbleStyle = useMemo(
+    () => [
+      userMessageStylesheet.bubble,
+      shellStretch ? userMessageStylesheet.bubbleExpanded : undefined,
+    ],
+    [shellStretch],
   );
   const trailingRowStyle = useMemo(
     () => [
@@ -514,11 +598,11 @@ export const UserMessage = memo(function UserMessage({
       aria-busy={isPending}
     >
       <View
-        style={userMessageStylesheet.content}
+        style={contentStyle}
         onPointerEnter={handlePointerEnter}
         onPointerLeave={handlePointerLeave}
       >
-        <View style={userMessageStylesheet.bubble}>
+        <View style={bubbleStyle}>
           {hasImages ? (
             <View style={imagePreviewContainerStyle}>
               {images.map((image) => (
@@ -535,9 +619,12 @@ export const UserMessage = memo(function UserMessage({
             <View style={attachmentPreviewContainerStyle}>
               {attachments.map((attachment, index) => {
                 const content = getAgentAttachmentPillContent(attachment, t);
+                const stretchId = `${attachment.type}:${"number" in attachment ? attachment.number : index}`;
                 return (
-                  <AttachmentFrame
-                    key={`${attachment.type}:${"number" in attachment ? attachment.number : index}`}
+                  <UserMessageAttachmentFrame
+                    key={stretchId}
+                    stretchId={stretchId}
+                    onStretchChange={handleAttachmentStretchChange}
                     details={renderPromptAttachmentAsText(attachment)}
                     testID="user-message-attachment-pill"
                   >
@@ -546,7 +633,7 @@ export const UserMessage = memo(function UserMessage({
                       title={content.title}
                       subtitle={content.subtitle}
                     />
-                  </AttachmentFrame>
+                  </UserMessageAttachmentFrame>
                 );
               })}
             </View>
@@ -592,6 +679,7 @@ interface AssistantTurnFooterProps {
   completedAt?: Date;
   durationMs?: number | null;
   onFork?: (target: AssistantForkTarget) => Promise<void> | void;
+  animateChrome?: boolean;
 }
 
 const assistantTurnFooterStylesheet = StyleSheet.create((theme) => ({
@@ -636,6 +724,7 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
   completedAt,
   durationMs,
   onFork,
+  animateChrome = false,
 }: AssistantTurnFooterProps) {
   const [hovered, setHovered] = useState(false);
   const [pressedReveal, setPressedReveal] = useState(false);
@@ -689,30 +778,52 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
 
   return (
     <View style={assistantTurnFooterStylesheet.container}>
-      <TurnCopyButton
-        getContent={getContent}
-        containerStyle={assistantTurnFooterStylesheet.copyButton}
-      />
-      {canFork ? <AssistantForkMenu onFork={handleFork} /> : null}
-      {primaryLabel ? (
-        <Pressable
-          onPress={handlePress}
-          onHoverIn={handleHoverIn}
-          onHoverOut={handleHoverOut}
-          accessibilityRole={canSwap ? "button" : undefined}
-          accessibilityLabel={canSwap ? `${durationLabel}, ended ${timestampLabel}` : primaryLabel}
+      <ChatEntryMotion
+        animateOnMount={animateChrome}
+        offsetPx={MOTION_MICRO_OFFSET_PX}
+        delayMs={motionStaggerDelayMs(0)}
+      >
+        <TurnCopyButton
+          getContent={getContent}
+          containerStyle={assistantTurnFooterStylesheet.copyButton}
+        />
+      </ChatEntryMotion>
+      {canFork ? (
+        <ChatEntryMotion
+          animateOnMount={animateChrome}
+          offsetPx={MOTION_MICRO_OFFSET_PX}
+          delayMs={motionStaggerDelayMs(1)}
         >
-          <View style={assistantTurnFooterStylesheet.labelWrapper}>
-            {/* Sizer reserves space for whichever label is longer so the
+          <AssistantForkMenu onFork={handleFork} />
+        </ChatEntryMotion>
+      ) : null}
+      {primaryLabel ? (
+        <ChatEntryMotion
+          animateOnMount={animateChrome}
+          offsetPx={MOTION_MICRO_OFFSET_PX}
+          delayMs={motionStaggerDelayMs(canFork ? 2 : 1)}
+        >
+          <Pressable
+            onPress={handlePress}
+            onHoverIn={handleHoverIn}
+            onHoverOut={handleHoverOut}
+            accessibilityRole={canSwap ? "button" : undefined}
+            accessibilityLabel={
+              canSwap ? `${durationLabel}, ended ${timestampLabel}` : primaryLabel
+            }
+          >
+            <View style={assistantTurnFooterStylesheet.labelWrapper}>
+              {/* Sizer reserves space for whichever label is longer so the
                 container width is stable across hover transitions. */}
-            <Text style={assistantTurnFooterStylesheet.labelSizer} aria-hidden>
-              {primaryLabel.length >= timestampLabel.length ? primaryLabel : timestampLabel}
-            </Text>
-            <Text style={assistantTurnFooterStylesheet.labelOverlay}>
-              {showTimestamp ? timestampLabel : primaryLabel}
-            </Text>
-          </View>
-        </Pressable>
+              <Text style={assistantTurnFooterStylesheet.labelSizer} aria-hidden>
+                {primaryLabel.length >= timestampLabel.length ? primaryLabel : timestampLabel}
+              </Text>
+              <Text style={assistantTurnFooterStylesheet.labelOverlay}>
+                {showTimestamp ? timestampLabel : primaryLabel}
+              </Text>
+            </View>
+          </Pressable>
+        </ChatEntryMotion>
       ) : null}
     </View>
   );
@@ -1051,6 +1162,10 @@ export const TurnCopyButton = memo(function TurnCopyButton({
 }: TurnCopyButtonProps) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
+  const hoveredRef = useRef(false);
+  const scale = useSharedValue(1);
+  const copyOpacity = useSharedValue(1);
+  const checkOpacity = useSharedValue(0);
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleCopy = useCallback(async () => {
@@ -1073,6 +1188,11 @@ export const TurnCopyButton = memo(function TurnCopyButton({
   }, [getContent]);
 
   useEffect(() => {
+    copyOpacity.value = withTiming(copied ? 0 : 1, MOTION_CROSSFADE_TIMING);
+    checkOpacity.value = withTiming(copied ? 1 : 0, MOTION_CROSSFADE_TIMING);
+  }, [checkOpacity, copied, copyOpacity]);
+
+  useEffect(() => {
     return () => {
       if (copyTimeoutRef.current) {
         clearTimeout(copyTimeoutRef.current);
@@ -1080,14 +1200,52 @@ export const TurnCopyButton = memo(function TurnCopyButton({
     };
   }, []);
 
+  const restScale = useCallback(() => {
+    const next = isWeb && hoveredRef.current ? MOTION_HOVER_SCALE : 1;
+    scale.value = withSpring(next, MOTION_PRESS_SPRING);
+  }, [scale]);
+
+  const handleHoverIn = useCallback(() => {
+    hoveredRef.current = true;
+    if (!isWeb) {
+      return;
+    }
+    scale.value = withTiming(MOTION_HOVER_SCALE, MOTION_HOVER_TIMING);
+  }, [scale]);
+
+  const handleHoverOut = useCallback(() => {
+    hoveredRef.current = false;
+    scale.value = withTiming(1, MOTION_HOVER_TIMING);
+  }, [scale]);
+
+  const handlePressIn = useCallback(() => {
+    scale.value = withSpring(MOTION_PRESS_SCALE, MOTION_PRESS_SPRING);
+  }, [scale]);
+
   const pressableStyle = useMemo(
     () => [turnCopyButtonStylesheet.container, containerStyle],
     [containerStyle],
   );
+  const scaleStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+  const copyIconStyle = useAnimatedStyle(() => ({
+    opacity: copyOpacity.value,
+  }));
+  const checkIconStyle = useAnimatedStyle(() => ({
+    opacity: checkOpacity.value,
+    position: "absolute" as const,
+    top: 0,
+    left: 0,
+  }));
 
   return (
     <Pressable
       onPress={handleCopy}
+      onPressIn={handlePressIn}
+      onPressOut={restScale}
+      onHoverIn={handleHoverIn}
+      onHoverOut={handleHoverOut}
       style={pressableStyle}
       accessibilityRole="button"
       accessibilityLabel={
@@ -1100,10 +1258,17 @@ export const TurnCopyButton = memo(function TurnCopyButton({
         const iconColor = hovered
           ? turnCopyButtonStylesheet.iconHoveredColor.color
           : turnCopyButtonStylesheet.iconColor.color;
-        return copied ? (
-          <Check size={ICON_SIZE.sm} color={iconColor} />
-        ) : (
-          <Copy size={ICON_SIZE.sm} color={iconColor} />
+        return (
+          <Animated.View style={scaleStyle}>
+            <View>
+              <Animated.View style={copyIconStyle}>
+                <Copy size={ICON_SIZE.sm} color={iconColor} />
+              </Animated.View>
+              <Animated.View style={checkIconStyle}>
+                <Check size={ICON_SIZE.sm} color={iconColor} />
+              </Animated.View>
+            </View>
+          </Animated.View>
         );
       }}
     </Pressable>
@@ -1272,6 +1437,10 @@ const NativeExpandableBadgeShimmer = memo(function NativeExpandableBadgeShimmer(
 }: NativeExpandableBadgeShimmerProps) {
   const isPanelActive = useRetainedPanelActive();
   const shimmerTranslateX = useSharedValue(0);
+  const travelEndRef = useRef(rowWidth + peakWidth);
+  if (travelEndRef.current <= peakWidth && rowWidth > 0) {
+    travelEndRef.current = rowWidth + peakWidth;
+  }
 
   useEffect(() => {
     if (!isPanelActive) {
@@ -1279,7 +1448,7 @@ const NativeExpandableBadgeShimmer = memo(function NativeExpandableBadgeShimmer(
       return;
     }
     const startPosition = -peakWidth;
-    const endPosition = rowWidth + peakWidth;
+    const endPosition = travelEndRef.current;
     shimmerTranslateX.value = startPosition;
     shimmerTranslateX.value = withRepeat(
       withTiming(endPosition, {
@@ -1292,7 +1461,7 @@ const NativeExpandableBadgeShimmer = memo(function NativeExpandableBadgeShimmer(
     return () => {
       cancelAnimation(shimmerTranslateX);
     };
-  }, [durationSeconds, isPanelActive, peakWidth, rowWidth, shimmerTranslateX]);
+  }, [durationSeconds, isPanelActive, peakWidth, shimmerTranslateX]);
 
   const nativeShimmerPeakStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: shimmerTranslateX.value }],
@@ -1661,7 +1830,7 @@ export const AssistantMessage = memo(function AssistantMessage({
           inheritedStyles={inheritedStyles}
           textStyle={styles.text}
         >
-          {node.content}
+          <StreamWordFade text={node.content} enabled={phase === "streaming"} />
         </MarkdownInheritedText>
       ),
       textgroup: (
@@ -2437,6 +2606,7 @@ interface ExpandableBadgeLabelRowProps {
   shouldMeasureNativeShimmer: boolean;
   isWebShimmer: boolean;
   isNativeShimmer: boolean;
+  isLoading: boolean;
   shimmerLabelTextStyle: StyleProp<TextStyle>;
   shimmerSecondaryTextStyle: StyleProp<TextStyle>;
   labelRowWidth: number;
@@ -2463,6 +2633,7 @@ function ExpandableBadgeLabelRow({
   shouldMeasureNativeShimmer,
   isWebShimmer,
   isNativeShimmer,
+  isLoading,
   shimmerLabelTextStyle,
   shimmerSecondaryTextStyle,
   labelRowWidth,
@@ -2485,13 +2656,13 @@ function ExpandableBadgeLabelRow({
       style={expandableBadgeStylesheet.labelRow}
       onLayout={shouldMeasureNativeShimmer ? onLabelRowLayout : undefined}
     >
-      <Text
+      <GrowingLabel
+        text={label}
         style={labelStyle}
         numberOfLines={1}
         onLayout={shouldMeasureWebShimmer ? onLabelLayout : undefined}
-      >
-        {label}
-      </Text>
+        fadeIncoming={isLoading}
+      />
       <ExpandableBadgeSecondaryLabel
         secondaryLabel={secondaryLabel}
         secondaryLabelStyle={secondaryLabelStyle}
@@ -2605,55 +2776,6 @@ function renderExpandableBadgeIconSlot({
     );
   }
   return iconNode;
-}
-
-function computeShimmerMetrics(input: {
-  label: string;
-  secondaryLabel: string | undefined;
-  isLoading: boolean;
-  labelRowWidth: number;
-  labelRowHeight: number;
-  labelOffsetX: number;
-  labelWidth: number;
-  secondaryOffsetX: number;
-  secondaryWidth: number;
-}) {
-  const totalShimmerChars = input.label.trim().length + (input.secondaryLabel?.trim().length ?? 0);
-  const shortTextDurationAdjustment = totalShimmerChars <= 12 ? 0.25 : 0;
-  const shimmerDuration = Math.max(
-    1,
-    Math.min(2.3, 1.25 + totalShimmerChars * 0.008 - shortTextDurationAdjustment),
-  );
-  const nativeShimmerPeakWidth = Math.max(
-    32,
-    Math.min(120, input.labelRowWidth > 0 ? input.labelRowWidth * 0.28 : 0),
-  );
-  const isWebShimmer = input.isLoading && isWeb;
-  // React Native Web only observes a node when onLayout exists at mount. Keep
-  // measuring while idle so a retained badge has dimensions when it starts loading.
-  const shouldMeasureWebShimmer = isWeb;
-  const shouldMeasureNativeShimmer = input.isLoading && isNative;
-  const isNativeShimmer =
-    shouldMeasureNativeShimmer && input.labelRowWidth > 0 && input.labelRowHeight > 0;
-  const webShimmerSpanStartX = input.labelOffsetX;
-  const webShimmerSpanEndX = input.secondaryLabel
-    ? input.secondaryOffsetX + input.secondaryWidth
-    : input.labelOffsetX + input.labelWidth;
-  const webShimmerSpanWidth = Math.max(1, webShimmerSpanEndX - webShimmerSpanStartX);
-  const webShimmerPeakWidth = Math.max(42, Math.min(120, webShimmerSpanWidth * 0.22));
-  const webShimmerTrackStart = webShimmerSpanStartX - webShimmerPeakWidth;
-  const webShimmerTrackEnd = webShimmerSpanEndX;
-  return {
-    shimmerDuration,
-    nativeShimmerPeakWidth,
-    isWebShimmer,
-    shouldMeasureWebShimmer,
-    shouldMeasureNativeShimmer,
-    isNativeShimmer,
-    webShimmerPeakWidth,
-    webShimmerTrackStart,
-    webShimmerTrackEnd,
-  };
 }
 
 function useDetailWheelPropagationBlocker(input: {
@@ -2774,21 +2896,21 @@ export const ExpandableBadge = memo(function ExpandableBadge({
   const [labelWidth, setLabelWidth] = useState(0);
   const [secondaryOffsetX, setSecondaryOffsetX] = useState(0);
   const [secondaryWidth, setSecondaryWidth] = useState(0);
-
   const {
-    shimmerDuration,
-    nativeShimmerPeakWidth,
     isWebShimmer,
     shouldMeasureWebShimmer,
     shouldMeasureNativeShimmer,
     isNativeShimmer,
-    webShimmerPeakWidth,
-    webShimmerTrackStart,
-    webShimmerTrackEnd,
-  } = computeShimmerMetrics({
+    shimmerDuration,
+    peakWidth,
+    trackStart,
+    trackEnd,
+  } = useRetainedShimmerMetrics({
     label,
     secondaryLabel,
     isLoading,
+    isWeb,
+    isNative,
     labelRowWidth,
     labelRowHeight,
     labelOffsetX,
@@ -2849,40 +2971,26 @@ export const ExpandableBadge = memo(function ExpandableBadge({
     () =>
       buildShimmerTextStyle({
         isWebShimmer,
-        webShimmerPeakWidth,
+        webShimmerPeakWidth: peakWidth,
         shimmerDuration,
-        webShimmerTrackStart,
-        webShimmerTrackEnd,
+        webShimmerTrackStart: trackStart,
+        webShimmerTrackEnd: trackEnd,
         offsetX: labelOffsetX,
       }),
-    [
-      isWebShimmer,
-      webShimmerPeakWidth,
-      shimmerDuration,
-      webShimmerTrackStart,
-      webShimmerTrackEnd,
-      labelOffsetX,
-    ],
+    [isWebShimmer, peakWidth, shimmerDuration, trackStart, trackEnd, labelOffsetX],
   );
 
   const shimmerSecondaryStyle = useMemo<StyleProp<TextStyle>>(
     () =>
       buildShimmerTextStyle({
         isWebShimmer,
-        webShimmerPeakWidth,
+        webShimmerPeakWidth: peakWidth,
         shimmerDuration,
-        webShimmerTrackStart,
-        webShimmerTrackEnd,
+        webShimmerTrackStart: trackStart,
+        webShimmerTrackEnd: trackEnd,
         offsetX: secondaryOffsetX,
       }),
-    [
-      isWebShimmer,
-      webShimmerPeakWidth,
-      shimmerDuration,
-      webShimmerTrackStart,
-      webShimmerTrackEnd,
-      secondaryOffsetX,
-    ],
+    [isWebShimmer, peakWidth, shimmerDuration, trackStart, trackEnd, secondaryOffsetX],
   );
 
   const containerStyle = useMemo(
@@ -3013,11 +3121,12 @@ export const ExpandableBadge = memo(function ExpandableBadge({
             shouldMeasureNativeShimmer={shouldMeasureNativeShimmer}
             isWebShimmer={isWebShimmer}
             isNativeShimmer={isNativeShimmer}
+            isLoading={isLoading}
             shimmerLabelTextStyle={shimmerLabelTextStyle}
             shimmerSecondaryTextStyle={shimmerSecondaryTextStyle}
             labelRowWidth={labelRowWidth}
             labelRowHeight={labelRowHeight}
-            nativeShimmerPeakWidth={nativeShimmerPeakWidth}
+            nativeShimmerPeakWidth={peakWidth}
             shimmerDuration={shimmerDuration}
             nativeGradientId={nativeGradientIdRef.current}
             onLabelRowLayout={handleLabelRowLayout}

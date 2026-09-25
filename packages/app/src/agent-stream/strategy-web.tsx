@@ -44,6 +44,7 @@ import {
 import { useChatFindSelectedMessageId } from "@/agent-stream/chat-find";
 import { getStreamItemMessageId } from "./presentation";
 import { useScrollToMessage } from "./use-scroll-to-message.web";
+import { MOTION_ARRIVE_CSS, resolveStreamBurstDuration } from "@/styles/motion-tokens";
 import { CHAT_ENTRY_DURATION_MS } from "./chat-entry-motion";
 
 interface CreateWebStreamStrategyInput {
@@ -687,8 +688,11 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     const animation = timelineNode.animate(
       [{ transform: `translateY(${startingOffset}px)` }, { transform: "translateY(0px)" }],
       {
-        duration: STREAM_RISE_DURATION_MS,
-        easing: "cubic-bezier(0.33, 1, 0.68, 1)",
+        duration: resolveStreamBurstDuration({
+          inFlight: previous !== null,
+          quietDurationMs: STREAM_RISE_DURATION_MS,
+        }),
+        easing: MOTION_ARRIVE_CSS,
         fill: "both",
       },
     );

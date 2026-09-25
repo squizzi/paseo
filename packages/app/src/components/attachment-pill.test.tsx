@@ -94,6 +94,26 @@ vi.mock("lucide-react-native", () => ({
   X: () => React.createElement("span", { "data-testid": "close-icon" }),
 }));
 
+vi.mock("@/components/badge-collapse-clip", () => ({
+  ExpandableBadgeCollapseClip: ({
+    expanded,
+    renderDetails,
+    testID,
+  }: {
+    expanded: boolean;
+    renderDetails?: () => React.ReactNode;
+    testID?: string;
+  }) =>
+    expanded && renderDetails
+      ? React.createElement("div", { "data-testid": testID }, renderDetails())
+      : null,
+}));
+
+vi.mock("@/components/expand-width-clip", () => ({
+  ExpandWidthClip: ({ children, testID }: React.PropsWithChildren<{ testID?: string }>) =>
+    React.createElement("div", { "data-testid": testID }, children),
+}));
+
 describe("expandable attachment pills", () => {
   let root: Root | null = null;
   let container: HTMLElement | null = null;
@@ -213,5 +233,26 @@ describe("expandable attachment pills", () => {
 
     expect(mounted.querySelector('[data-testid="attachment-expand-toggle"]')).toBeNull();
     expect(mounted.querySelector('[data-testid="attachment-prompt-details"]')).toBeNull();
+  });
+
+  it("reports stretch so a hugging parent can offer panel width", () => {
+    const onStretchChange = vi.fn();
+    const mounted = renderFrame(
+      <AttachmentFrame details="Workspace file: src/app.ts" onStretchChange={onStretchChange}>
+        <AttachmentLabel title="app.ts" subtitle="TypeScript" />
+      </AttachmentFrame>,
+    );
+
+    expect(onStretchChange).toHaveBeenCalledWith(false);
+
+    const toggle = mounted.querySelector('[data-testid="attachment-expand-toggle"]');
+    if (!(toggle instanceof HTMLElement)) {
+      throw new Error("expected an expand toggle");
+    }
+    act(() => {
+      toggle.click();
+    });
+
+    expect(onStretchChange).toHaveBeenCalledWith(true);
   });
 });

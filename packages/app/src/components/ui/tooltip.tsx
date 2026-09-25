@@ -24,10 +24,10 @@ import {
   type StyleProp,
   type ViewStyle,
 } from "react-native";
-import { FadeIn, FadeOut } from "react-native-reanimated";
 import { StyleSheet } from "react-native-unistyles";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { FloatingSurface } from "@/components/ui/floating";
+import { tooltipOverlayMotion } from "@/components/ui/overlay-motion";
 import { isWeb } from "@/constants/platform";
 import { getOverlayRoot, OVERLAY_Z } from "@/lib/overlay-root";
 
@@ -519,8 +519,8 @@ export function TooltipContent({
       <View pointerEvents="none" style={styles.portalOverlay}>
         <FloatingSurface
           pointerEvents="none"
-          entering={FadeIn.duration(80)}
-          exiting={FadeOut.duration(80)}
+          entering={tooltipOverlayMotion.entering[side]}
+          exiting={tooltipOverlayMotion.exiting[side]}
           collapsable={false}
           testID={testID}
           onLayout={handleLayout}
@@ -545,8 +545,8 @@ export function TooltipContent({
       <Pressable style={styles.overlay} onPress={handleDismiss}>
         <FloatingSurface
           pointerEvents="none"
-          entering={FadeIn.duration(80)}
-          exiting={FadeOut.duration(80)}
+          entering={tooltipOverlayMotion.entering[side]}
+          exiting={tooltipOverlayMotion.exiting[side]}
           collapsable={false}
           testID={testID}
           onLayout={handleLayout}

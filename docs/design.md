@@ -263,6 +263,7 @@ New status pills use `<StatusBadge>`. Identity, shortcut, and interactive link b
 - Bespoke status pills. `<StatusBadge>` is the pill primitive.
 - Raw `Modal` for a focused task. `<AdaptiveModalSheet>` is the modal primitive.
 - Importing `ActivityIndicator` directly. `<LoadingSpinner>` is the loading primitive.
+- A local duration, easing, or spring next to a shared motion token. Import from `packages/app/src/styles/motion.ts` or `packages/app/src/styles/motion-tokens.ts`.
 
 ---
 
@@ -288,3 +289,20 @@ New status pills use `<StatusBadge>`. Identity, shortcut, and interactive link b
 | Trigger-anchored menu                               | `packages/app/src/components/ui/dropdown-menu.tsx` (used in `sidebar-workspace-list.tsx`, theme picker)                                                                                                                                                                                                  |
 | Right-click / long-press menu                       | `packages/app/src/components/ui/context-menu.tsx` (used in `sidebar-workspace-list.tsx`)                                                                                                                                                                                                                 |
 | Headers (back, screen, menu)                        | `packages/app/src/components/headers/back-header.tsx`, `screen-header.tsx`, `menu-header.tsx`                                                                                                                                                                                                            |
+
+---
+
+## 16. Motion
+
+Tokens live in `packages/app/src/styles/motion.ts` (Reanimated curves) and
+`packages/app/src/styles/motion-tokens.ts` (numbers and CSS). CSS hover paint
+imports the tokens file so it does not load Reanimated. Import those. Do not
+invent a duration or curve next to them.
+
+Arrive is 200ms with a fast attack and a soft land. Exit is 120ms, quicker, no overshoot. Overlays are shorter (160/100) and start closer to the anchor. Hover paint is 150ms CSS on web. Springs are for pointer scale only — height and width stay on timing so layout cannot bounce. Reduced motion snaps.
+
+Chat arrivals go through `ChatEntryMotion` and play on mount. Assistant text does not fade as a row; newly revealed words fade on the burst window without restarting when the line grows. Permissions and the turn footer wrapper stay at rest. Copy, fork, and elapsed insides stagger only when a live turn just completed. History paints complete. Streaming growth clips new lines; a quiet wrap uses arrive, an in-flight catch-up or a lump bigger than one line uses the 80ms burst window. A whole-row insert (a sent message) keeps arrive — it is not a stream lump. Tool-call summary labels ease width and fade the new suffix when counts grow. The loading shimmer keeps its original sweep so extra words do not flash. Files and Changes disclosure chevrons use the same arrive/exit curves.
+
+Expand/collapse uses one resize policy (`resolveCollapseClipResize`) for height (`ExpandableBadgeCollapseClip`) and width (`ExpandWidthClip`). Content inside a badge rises 4px after a 40ms delay.
+
+Reanimated owns layout motion. CSS owns web hover paint.

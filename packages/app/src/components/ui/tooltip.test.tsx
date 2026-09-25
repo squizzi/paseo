@@ -29,6 +29,23 @@ vi.mock("react-native-reanimated", () => ({
   },
   FadeIn: {},
   FadeOut: {},
+  Easing: {
+    bezier: () => "arrive",
+    in: (easing: unknown) => easing,
+    cubic: "cubic",
+  },
+  ReduceMotion: { System: "system" },
+  Keyframe: class {
+    duration() {
+      return this;
+    }
+    reduceMotion() {
+      return this;
+    }
+    withCallback() {
+      return this;
+    }
+  },
 }));
 
 vi.mock("react-native-unistyles", () => ({

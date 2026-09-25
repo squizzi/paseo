@@ -1009,6 +1009,8 @@ export const zhCN: TranslationResources = {
           approved: "已批准",
           requestedChanges: "请求修改",
           reviewed: "已 review",
+          sortOldest: "最早优先",
+          sortNewest: "最近优先",
           sortOldestAccessible: "按最早优先排序活动",
           sortNewestAccessible: "按最近优先排序活动",
         },

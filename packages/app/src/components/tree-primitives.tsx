@@ -1,6 +1,12 @@
 import { View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { ChevronRight } from "lucide-react-native";
+import {
+  MOTION_ARRIVE_CSS,
+  MOTION_ARRIVE_DURATION_MS,
+  MOTION_EXIT_CSS,
+  MOTION_EXIT_DURATION_MS,
+} from "@/styles/motion-tokens";
 import { SPACING, type Theme } from "@/styles/theme";
 
 // Shared presentation primitives for the app's directory trees. Both the Files
@@ -35,7 +41,13 @@ const ThemedChevronRight = withUnistyles(ChevronRight);
 /** Rotating disclosure chevron for a directory row (points right; rotates down when expanded). */
 export function TreeChevron({ expanded }: { expanded: boolean }) {
   return (
-    <View style={expanded ? [styles.chevron, styles.chevronExpanded] : styles.chevron}>
+    <View
+      style={[
+        styles.chevron,
+        expanded ? styles.chevronExpanded : styles.chevronCollapsed,
+        expanded ? styles.chevronArrive : styles.chevronExit,
+      ]}
+    >
       <ThemedChevronRight
         size={WORKSPACE_TREE_ICON_SIZE}
         uniProps={foregroundExtraMutedIconColorMapping}
@@ -69,5 +81,18 @@ const styles = StyleSheet.create((_theme: Theme) => ({
   },
   chevronExpanded: {
     transform: [{ rotate: "90deg" }],
+  },
+  chevronCollapsed: {
+    transform: [{ rotate: "0deg" }],
+  },
+  chevronArrive: {
+    transitionProperty: "transform",
+    transitionDuration: `${MOTION_ARRIVE_DURATION_MS}ms`,
+    transitionTimingFunction: MOTION_ARRIVE_CSS,
+  },
+  chevronExit: {
+    transitionProperty: "transform",
+    transitionDuration: `${MOTION_EXIT_DURATION_MS}ms`,
+    transitionTimingFunction: MOTION_EXIT_CSS,
   },
 }));

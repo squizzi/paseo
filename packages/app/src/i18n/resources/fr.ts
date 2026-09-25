@@ -1049,6 +1049,8 @@ export const fr: TranslationResources = {
           approved: "Approuvé",
           requestedChanges: "Modifications demandées",
           reviewed: "Révisé",
+          sortOldest: "Plus anciennes",
+          sortNewest: "Plus récentes",
           sortOldestAccessible: "Trier l'activité des plus anciennes aux plus récentes",
           sortNewestAccessible: "Trier l'activité des plus récentes aux plus anciennes",
         },

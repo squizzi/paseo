@@ -2,41 +2,28 @@ import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from "
 import { View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from "react-native";
 import Animated, {
   cancelAnimation,
-  ReduceMotion,
   runOnJS,
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
+  withDelay,
   withTiming,
 } from "react-native-reanimated";
 import { StyleSheet } from "react-native-unistyles";
-import { CHAT_ENTRY_EASING } from "@/agent-stream/chat-entry-motion";
 import {
   BADGE_COLLAPSE_AUTO_HEIGHT,
-  BADGE_COLLAPSE_DURATION_MS,
-  type BadgeCollapseClipFrameStyle,
-  type BadgeCollapseClipResize,
   resolveBadgeCollapseClipFrameStyle,
-  resolveBadgeCollapseClipResize,
 } from "@/components/badge-collapse-motion";
+import { resolveCollapseClipResize } from "@/components/collapse-clip-motion";
 import { isWeb } from "@/constants/platform";
+import {
+  MOTION_ARRIVE_TIMING,
+  MOTION_CONTENT_DELAY_MS,
+  MOTION_EXIT_TIMING,
+  MOTION_MICRO_OFFSET_PX,
+} from "@/styles/motion";
 
-export {
-  BADGE_COLLAPSE_AUTO_HEIGHT,
-  BADGE_COLLAPSE_DURATION_MS,
-  type BadgeCollapseClipFrameStyle,
-  type BadgeCollapseClipResize,
-  resolveBadgeCollapseClipFrameStyle,
-  resolveBadgeCollapseClipResize,
-};
-
-export const BADGE_COLLAPSE_EASING = CHAT_ENTRY_EASING;
-
-export const BADGE_COLLAPSE_TIMING = {
-  duration: BADGE_COLLAPSE_DURATION_MS,
-  easing: BADGE_COLLAPSE_EASING,
-  reduceMotion: ReduceMotion.System,
-};
+export { BADGE_COLLAPSE_AUTO_HEIGHT, resolveBadgeCollapseClipFrameStyle };
 
 export interface ExpandableBadgeCollapseClipProps {
   expanded: boolean;
@@ -61,6 +48,7 @@ export function ExpandableBadgeCollapseClip({
 }: ExpandableBadgeCollapseClipProps) {
   const reducedMotion = useReducedMotion() === true;
   const height = useSharedValue(expanded ? BADGE_COLLAPSE_AUTO_HEIGHT : 0);
+  const contentProgress = useSharedValue(expanded ? 1 : 0);
   const contentHeightRef = useRef(0);
   const targetHeightRef = useRef(0);
   const expandedRef = useRef(expanded);
@@ -99,11 +87,11 @@ export function ExpandableBadgeCollapseClip({
       if (nextHeight > 0) {
         contentHeightRef.current = nextHeight;
       }
-      const decision = resolveBadgeCollapseClipResize({
+      const decision = resolveCollapseClipResize({
         expanded,
         settledOpen: settledOpenRef.current,
-        nextHeight,
-        targetHeight: targetHeightRef.current,
+        nextSize: nextHeight,
+        targetSize: targetHeightRef.current,
       });
       if (decision.action === "ignore") {
         return;
@@ -113,7 +101,7 @@ export function ExpandableBadgeCollapseClip({
       if (height.value < 0) {
         height.value = 0;
       }
-      height.value = withTiming(decision.to, BADGE_COLLAPSE_TIMING, (finished) => {
+      height.value = withTiming(decision.to, MOTION_ARRIVE_TIMING, (finished) => {
         if (finished) {
           runOnJS(markSettledOpen)();
         }
@@ -164,7 +152,9 @@ export function ExpandableBadgeCollapseClip({
   useLayoutEffect(() => {
     if (reducedMotion) {
       cancelAnimation(height);
+      cancelAnimation(contentProgress);
       height.value = expanded ? BADGE_COLLAPSE_AUTO_HEIGHT : 0;
+      contentProgress.value = expanded ? 1 : 0;
       targetHeightRef.current = 0;
       settledOpenRef.current = expanded;
       setSettledOpen(expanded);
@@ -184,6 +174,12 @@ export function ExpandableBadgeCollapseClip({
       }
       cancelAnimation(height);
       targetHeightRef.current = height.value > 0 ? height.value : 0;
+      cancelAnimation(contentProgress);
+      contentProgress.value = 0;
+      contentProgress.value = withDelay(
+        MOTION_CONTENT_DELAY_MS,
+        withTiming(1, MOTION_ARRIVE_TIMING),
+      );
       return;
     }
 
@@ -196,6 +192,8 @@ export function ExpandableBadgeCollapseClip({
       from = contentHeightRef.current;
     }
     targetHeightRef.current = 0;
+    cancelAnimation(contentProgress);
+    contentProgress.value = withTiming(0, MOTION_EXIT_TIMING);
     if (from <= 0) {
       cancelAnimation(height);
       height.value = 0;
@@ -208,14 +206,18 @@ export function ExpandableBadgeCollapseClip({
     onClosingChange?.(true);
     cancelAnimation(height);
     height.value = from;
-    height.value = withTiming(0, BADGE_COLLAPSE_TIMING, (finished) => {
+    height.value = withTiming(0, MOTION_EXIT_TIMING, (finished) => {
       if (finished) {
         runOnJS(unmountCollapsed)();
       }
     });
-  }, [expanded, height, onClosingChange, reducedMotion, unmountCollapsed]);
+  }, [contentProgress, expanded, height, onClosingChange, reducedMotion, unmountCollapsed]);
 
   const clipStyle = useAnimatedStyle(() => resolveBadgeCollapseClipFrameStyle(height.value));
+  const contentStyle = useAnimatedStyle(() => ({
+    opacity: contentProgress.value,
+    transform: [{ translateY: MOTION_MICRO_OFFSET_PX * (1 - contentProgress.value) }],
+  }));
 
   if (!renderChildren && !expanded) {
     return null;
@@ -234,14 +236,14 @@ export function ExpandableBadgeCollapseClip({
       onPointerEnter={isWeb ? onHoverIn : undefined}
       onPointerLeave={isWeb ? onHoverOut : undefined}
     >
-      <View
+      <Animated.View
         ref={setInnerRef}
         collapsable={false}
         onLayout={handleInnerLayout}
-        style={settledOpen ? undefined : styles.clipInner}
+        style={[settledOpen ? undefined : styles.clipInner, contentStyle]}
       >
         {content}
-      </View>
+      </Animated.View>
     </Animated.View>
   );
 }

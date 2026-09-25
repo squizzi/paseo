@@ -6,6 +6,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RetainedPanelActivity } from "@/components/retained-panel";
+import { MOTION_ARRIVE_DURATION_MS, MOTION_BURST_DURATION_MS } from "@/styles/motion-tokens";
 import type { StreamItem } from "@/types/stream";
 import type { StreamRenderInput, StreamSegmentRenderers, StreamViewportHandle } from "./strategy";
 import { createWebStreamStrategy } from "./strategy-web";
@@ -1470,7 +1471,10 @@ describe("createWebStreamStrategy", () => {
       { transform: "translateY(60px)" },
       { transform: "translateY(0px)" },
     ]);
-    expect(animate.mock.calls[0]?.[1]).toMatchObject({ fill: "both" });
+    expect(animate.mock.calls[0]?.[1]).toMatchObject({
+      fill: "both",
+      duration: MOTION_ARRIVE_DURATION_MS,
+    });
   });
 
   it("starts the next timeline rise before cancelling an in-flight rise", () => {
@@ -1625,6 +1629,7 @@ describe("createWebStreamStrategy", () => {
       { transform: "translateY(38px)" },
       { transform: "translateY(0px)" },
     ]);
+    expect(animate.mock.calls[1]?.[1]).toMatchObject({ duration: MOTION_BURST_DURATION_MS });
     expect(firstRise.cancel).toHaveBeenCalledTimes(1);
     expect(firstRise.cancel.mock.invocationCallOrder[0]).toBeGreaterThan(
       animate.mock.invocationCallOrder[1]!,

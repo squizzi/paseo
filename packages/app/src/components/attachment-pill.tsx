@@ -1,4 +1,12 @@
-import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from "react";
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useState,
+} from "react";
 import { Image, Pressable, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
@@ -7,8 +15,11 @@ import { isNative, isWeb } from "@/constants/platform";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import type { AttachmentMetadata } from "@/attachments/types";
 import { useAttachmentPreviewUrl } from "@/attachments/use-attachment-preview-url";
+import { ExpandableBadgeCollapseClip } from "@/components/badge-collapse-clip";
+import { ExpandWidthClip } from "@/components/expand-width-clip";
 import { ToolCallDetailsContent } from "@/components/tool-call-details";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
+import { MOTION_ARRIVE_CSS, MOTION_ARRIVE_DURATION_MS } from "@/styles/motion-tokens";
 import type { Theme } from "@/styles/theme";
 
 // Every attachment pill body — image thumbnail or labelled — renders at this
@@ -104,7 +115,7 @@ function AttachmentPromptDetails({ text }: { text: string }) {
   const maxHeight = isCompact ? 180 : 260;
   const detail = useMemo(() => ({ type: "plain_text" as const, text }), [text]);
   return (
-    <View style={styles.detailWrapper} testID="attachment-prompt-details">
+    <View testID="attachment-prompt-details">
       <ToolCallDetailsContent detail={detail} maxHeight={maxHeight} />
     </View>
   );
@@ -117,6 +128,7 @@ interface AttachmentChromeProps {
   expansion?: AttachmentExpansion;
   disabled?: boolean;
   testID?: string;
+  onStretchChange?: (stretch: boolean) => void;
   children: ReactNode;
 }
 
@@ -127,24 +139,22 @@ function AttachmentChrome({
   expansion: providedExpansion,
   disabled = false,
   testID,
+  onStretchChange,
   children,
 }: AttachmentChromeProps) {
   const internalExpansion = useAttachmentExpansion(details);
   const expansion = providedExpansion ?? internalExpansion;
+  const [isWidthClosing, setIsWidthClosing] = useState(false);
+  const [isHeightClosing, setIsHeightClosing] = useState(false);
   const handleBodyPress = onBodyPress ?? (expansion.hasDetails ? expansion.toggle : undefined);
   const isBodyExpandToggle = !onBodyPress && expansion.hasDetails;
+  const shellOpen = expansion.isExpanded || isWidthClosing || isHeightClosing;
   const wrapperStyle = useMemo(
-    () => [styles.column, expansion.isExpanded && styles.columnExpanded],
-    [expansion.isExpanded],
+    () => [styles.column, shellOpen && styles.columnExpanded],
+    [shellOpen],
   );
-  const frameStyle = useMemo(
-    () => [styles.frame, expansion.isExpanded && styles.frameExpanded],
-    [expansion.isExpanded],
-  );
-  const bodyStyle = useMemo(
-    () => [styles.body, expansion.isExpanded && styles.bodyExpanded],
-    [expansion.isExpanded],
-  );
+  const frameStyle = useMemo(() => [styles.frame, shellOpen && styles.frameExpanded], [shellOpen]);
+  const bodyStyle = useMemo(() => [styles.body, shellOpen && styles.bodyExpanded], [shellOpen]);
   const expandLabel = expansion.isExpanded
     ? expansion.collapseAccessibilityLabel
     : expansion.expandAccessibilityLabel;
@@ -156,6 +166,14 @@ function AttachmentChrome({
     () => ({ hasLeadingToggle: expansion.hasDetails }),
     [expansion.hasDetails],
   );
+  const renderPromptDetails = useCallback(
+    () => <AttachmentPromptDetails text={expansion.prompt} />,
+    [expansion.prompt],
+  );
+
+  useLayoutEffect(() => {
+    onStretchChange?.(shellOpen);
+  }, [onStretchChange, shellOpen]);
 
   const body = handleBodyPress ? (
     <Pressable
@@ -175,8 +193,8 @@ function AttachmentChrome({
     </View>
   );
 
-  return (
-    <View style={wrapperStyle}>
+  const inner = (
+    <>
       <View style={frameStyle}>
         {expansion.hasDetails ? (
           <AttachmentExpandToggle
@@ -190,8 +208,31 @@ function AttachmentChrome({
           {body}
         </AttachmentChromeContext.Provider>
       </View>
-      {expansion.isExpanded ? <AttachmentPromptDetails text={expansion.prompt} /> : null}
-    </View>
+      {expansion.hasDetails ? (
+        <ExpandableBadgeCollapseClip
+          expanded={expansion.isExpanded}
+          renderDetails={renderPromptDetails}
+          detailWrapperStyle={styles.detailWrapper}
+          onClosingChange={setIsHeightClosing}
+          testID="attachment-prompt-collapse-clip"
+        />
+      ) : null}
+    </>
+  );
+
+  if (!expansion.hasDetails) {
+    return <View style={wrapperStyle}>{inner}</View>;
+  }
+
+  return (
+    <ExpandWidthClip
+      expanded={expansion.isExpanded}
+      onClosingChange={setIsWidthClosing}
+      style={wrapperStyle}
+      testID="attachment-expand-width-clip"
+    >
+      {inner}
+    </ExpandWidthClip>
   );
 }
 
@@ -219,6 +260,7 @@ export function AttachmentPill({
   const isCompact = useIsCompactFormFactor();
   const [isHovered, setIsHovered] = useState(false);
   const expansion = useAttachmentExpansion(details);
+  const [stretchShell, setStretchShell] = useState(false);
   const alwaysShow = isNative || isCompact;
   const showRemove = alwaysShow || isHovered;
   const closeButtonStyle = useMemo(
@@ -228,8 +270,8 @@ export function AttachmentPill({
   const handleHoverIn = useCallback(() => setIsHovered(true), []);
   const handleHoverOut = useCallback(() => setIsHovered(false), []);
   const wrapperStyle = useMemo(
-    () => [styles.wrapper, expansion.isExpanded && styles.wrapperExpanded],
-    [expansion.isExpanded],
+    () => [styles.wrapper, stretchShell && styles.wrapperExpanded],
+    [stretchShell],
   );
   return (
     <View
@@ -241,6 +283,7 @@ export function AttachmentPill({
         onBodyPress={onOpen}
         bodyAccessibilityLabel={openAccessibilityLabel}
         expansion={expansion}
+        onStretchChange={setStretchShell}
         disabled={disabled}
         testID={testID}
       >
@@ -265,6 +308,7 @@ interface AttachmentFrameProps {
   accessibilityLabel?: string;
   details?: string | null;
   testID?: string;
+  onStretchChange?: (stretch: boolean) => void;
   children: ReactNode;
 }
 
@@ -274,6 +318,7 @@ export function AttachmentFrame({
   accessibilityLabel,
   details,
   testID,
+  onStretchChange,
   children,
 }: AttachmentFrameProps) {
   return (
@@ -282,6 +327,7 @@ export function AttachmentFrame({
       bodyAccessibilityLabel={accessibilityLabel}
       details={details}
       testID={testID}
+      onStretchChange={onStretchChange}
     >
       {children}
     </AttachmentChrome>
@@ -388,6 +434,13 @@ const styles = StyleSheet.create((theme) => ({
   },
   chevron: {
     flexShrink: 0,
+    ...(isWeb
+      ? {
+          transitionProperty: "transform",
+          transitionDuration: `${MOTION_ARRIVE_DURATION_MS}ms`,
+          transitionTimingFunction: MOTION_ARRIVE_CSS,
+        }
+      : null),
   },
   detailWrapper: {
     width: "100%",

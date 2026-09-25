@@ -159,8 +159,6 @@ import { useSidebarRowItems } from "@/components/sidebar/display-preferences/mod
 import { PullRequestStateIcon } from "@/git/pull-request-state-icon";
 import Animated, {
   cancelAnimation,
-  Easing,
-  ReduceMotion,
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
@@ -168,7 +166,6 @@ import Animated, {
 } from "react-native-reanimated";
 import {
   SIDEBAR_ITEM_MOTION_AUTO_HEIGHT,
-  SIDEBAR_ITEM_MOTION_DURATION_MS,
   SIDEBAR_ITEM_MOTION_OFFSET,
   isNewSidebarMotionItem,
   rememberSidebarMotionItem,
@@ -180,6 +177,7 @@ import {
   sidebarProjectMotionKey,
   sidebarWorkspaceMotionKey,
 } from "@/components/sidebar/item-motion";
+import { MOTION_ARRIVE_TIMING, MOTION_EXIT_DURATION_MS, MOTION_EXIT_TIMING } from "@/styles/motion";
 
 const workspaceKeyExtractor = (workspace: SidebarWorkspacePlacement) => workspace.workspaceKey;
 
@@ -315,38 +313,24 @@ function useSidebarItemMotion(input: {
       measuredHeight.current = decision.to;
       cancelAnimation(height);
       height.value = decision.from;
-      height.value = withTiming(
-        decision.to,
-        {
-          duration: SIDEBAR_ITEM_MOTION_DURATION_MS,
-          easing: Easing.out(Easing.cubic),
-          reduceMotion: ReduceMotion.System,
-        },
-        (finished) => {
-          if (finished) {
-            height.value = SIDEBAR_ITEM_MOTION_AUTO_HEIGHT;
-          }
-        },
-      );
+      height.value = withTiming(decision.to, MOTION_ARRIVE_TIMING, (finished) => {
+        if (finished) {
+          height.value = SIDEBAR_ITEM_MOTION_AUTO_HEIGHT;
+        }
+      });
     },
     [height, input.easeContentResize, input.entering, input.exiting, measureOffscreen],
   );
 
   useLayoutEffect(() => {
-    const timing = {
-      duration: SIDEBAR_ITEM_MOTION_DURATION_MS,
-      easing: Easing.out(Easing.cubic),
-      reduceMotion: ReduceMotion.System,
-    };
-
     if (input.exiting) {
       didArmExit.current = true;
       if (height.value < 0 && measuredHeight.current > 0) {
         height.value = measuredHeight.current;
       }
-      height.value = withTiming(0, timing);
-      offset.value = withTiming(SIDEBAR_ITEM_MOTION_OFFSET, timing);
-      opacity.value = withTiming(0, timing);
+      height.value = withTiming(0, MOTION_EXIT_TIMING);
+      offset.value = withTiming(SIDEBAR_ITEM_MOTION_OFFSET, MOTION_EXIT_TIMING);
+      opacity.value = withTiming(0, MOTION_EXIT_TIMING);
       return;
     }
 
@@ -359,7 +343,7 @@ function useSidebarItemMotion(input: {
       didArmExit.current = false;
       const restoreHeight = measuredHeight.current;
       if (restoreHeight > 0) {
-        height.value = withTiming(restoreHeight, timing, (finished) => {
+        height.value = withTiming(restoreHeight, MOTION_ARRIVE_TIMING, (finished) => {
           if (finished) {
             height.value = SIDEBAR_ITEM_MOTION_AUTO_HEIGHT;
           }
@@ -367,8 +351,8 @@ function useSidebarItemMotion(input: {
       } else {
         height.value = SIDEBAR_ITEM_MOTION_AUTO_HEIGHT;
       }
-      offset.value = withTiming(0, timing);
-      opacity.value = withTiming(1, timing);
+      offset.value = withTiming(0, MOTION_ARRIVE_TIMING);
+      opacity.value = withTiming(1, MOTION_ARRIVE_TIMING);
       return;
     }
 
@@ -377,20 +361,20 @@ function useSidebarItemMotion(input: {
       height.value = 0;
       offset.value = -SIDEBAR_ITEM_MOTION_OFFSET;
       opacity.value = 0;
-      height.value = withTiming(measuredHeight.current, timing, (finished) => {
+      height.value = withTiming(measuredHeight.current, MOTION_ARRIVE_TIMING, (finished) => {
         if (finished) {
           height.value = SIDEBAR_ITEM_MOTION_AUTO_HEIGHT;
         }
       });
-      offset.value = withTiming(0, timing);
-      opacity.value = withTiming(1, timing);
+      offset.value = withTiming(0, MOTION_ARRIVE_TIMING);
+      opacity.value = withTiming(1, MOTION_ARRIVE_TIMING);
       return;
     }
 
     if (!input.entering) {
       didArmEnter.current = false;
-      offset.value = withTiming(0, timing);
-      opacity.value = withTiming(1, timing);
+      offset.value = withTiming(0, MOTION_ARRIVE_TIMING);
+      opacity.value = withTiming(1, MOTION_ARRIVE_TIMING);
     }
   }, [hasMeasuredEnter, height, input.entering, input.exiting, offset, opacity]);
 
@@ -446,7 +430,7 @@ function waitForSidebarItemMotion(reducedMotion: boolean): Promise<void> {
   if (reducedMotion) {
     return Promise.resolve();
   }
-  return new Promise((resolve) => setTimeout(resolve, SIDEBAR_ITEM_MOTION_DURATION_MS));
+  return new Promise((resolve) => setTimeout(resolve, MOTION_EXIT_DURATION_MS));
 }
 
 const foregroundColorMapping = (theme: Theme) => ({

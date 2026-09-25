@@ -3,22 +3,30 @@ import type { LayoutChangeEvent, StyleProp, ViewStyle } from "react-native";
 import { View } from "react-native";
 import Animated, {
   cancelAnimation,
-  Easing,
   LinearTransition,
-  ReduceMotion,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
   withTiming,
   type SharedValue,
 } from "react-native-reanimated";
 import { isWeb } from "@/constants/platform";
+import {
+  MOTION_ARRIVE_DURATION_MS,
+  MOTION_ARRIVE_EASING,
+  MOTION_ARRIVE_OFFSET_PX,
+  MOTION_ARRIVE_TIMING,
+  MOTION_BURST_DURATION_MS,
+  MOTION_BURST_TIMING,
+  resolveStreamBurstDuration,
+} from "@/styles/motion";
 import type { StreamItem } from "@/types/stream";
 import type { StreamLayoutItem } from "./layout";
 
-export const CHAT_ENTRY_DURATION_MS = 160;
-/** One easing curve for every chat arrival, growth, and spacing shift. */
-export const CHAT_ENTRY_EASING = Easing.out(Easing.cubic);
-const CHAT_ENTRY_OFFSET_PX = 6;
+export const CHAT_ENTRY_DURATION_MS = MOTION_ARRIVE_DURATION_MS;
+/** Shared arrive curve for row fade+rise. Growth clip uses arrive or burst. */
+export const CHAT_ENTRY_EASING = MOTION_ARRIVE_EASING;
+const CHAT_ENTRY_OFFSET_PX = MOTION_ARRIVE_OFFSET_PX;
 
 export function userMessageEntryKeys(
   item: Extract<StreamItem, { kind: "user_message" }>,
@@ -44,7 +52,7 @@ export function shouldAnimateStreamItemEntry(
     return false;
   }
   // Submitted user rows must keep entry motion after a fast ack. Pending-only
-  // animation dies when the provider echoes the message before 160ms.
+  // animation dies when the provider echoes the message before the arrive window.
   if (layoutItem.item.kind === "user_message") {
     const item = layoutItem.item;
     const isPendingSubmission =
@@ -82,6 +90,8 @@ interface ChatEntryMotionProps {
   children: ReactNode;
   animateOnMount?: boolean;
   revision?: string | number;
+  delayMs?: number;
+  offsetPx?: number;
   /**
    * Snap to rest and suppress entry motion. Set once a newer sibling supersedes
    * this one during a burst, so only the most recent arrival animates and the
@@ -93,32 +103,11 @@ interface ChatEntryMotionProps {
   dataSet?: Record<string, string>;
 }
 
-function playEntry(progress: SharedValue<number>) {
+function playEntry(progress: SharedValue<number>, delayMs: number) {
   cancelAnimation(progress);
   progress.value = 0;
-  progress.value = withTiming(1, {
-    duration: CHAT_ENTRY_DURATION_MS,
-    easing: CHAT_ENTRY_EASING,
-    reduceMotion: ReduceMotion.System,
-  });
-}
-
-function observeChatViewportEntry(element: HTMLElement, onVisible: () => void): () => void {
-  const root = element.closest('[data-testid="agent-chat-scroll"]');
-  const observer = new IntersectionObserver(
-    (entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) {
-        onVisible();
-        observer.disconnect();
-      }
-    },
-    {
-      root: root instanceof Element ? root : null,
-      threshold: 0,
-    },
-  );
-  observer.observe(element);
-  return () => observer.disconnect();
+  const timing = withTiming(1, MOTION_ARRIVE_TIMING);
+  progress.value = delayMs > 0 ? withDelay(delayMs, timing) : timing;
 }
 
 /** Shared arrival motion for visible rows and controls inside the chat timeline. */
@@ -126,15 +115,13 @@ export function ChatEntryMotion({
   children,
   animateOnMount = true,
   revision,
+  delayMs = 0,
+  offsetPx = CHAT_ENTRY_OFFSET_PX,
   settle = false,
   style,
   testID,
   dataSet,
 }: ChatEntryMotionProps) {
-  const hostElementRef = useRef<HTMLElement | null>(null);
-  const setHostRef = useCallback((node: unknown) => {
-    hostElementRef.current = isWeb && node instanceof HTMLElement ? node : null;
-  }, []);
   const hasMounted = useRef(false);
   const hasPlayedEntry = useRef(false);
   const previousRevision = useRef(revision);
@@ -142,10 +129,11 @@ export function ChatEntryMotion({
   settleRef.current = settle;
   const animateOnMountRef = useRef(animateOnMount);
   animateOnMountRef.current = animateOnMount;
+  const delayMsRef = useRef(delayMs);
+  delayMsRef.current = delayMs;
   const progress = useSharedValue(animateOnMount && !settle ? 0 : 1);
 
-  // A row superseded before or during its entry snaps to rest. The ref guards
-  // the async web play() path so a late IntersectionObserver can't replay it.
+  // A row superseded before or during its entry snaps to rest.
   useLayoutEffect(() => {
     if (settle) {
       cancelAnimation(progress);
@@ -158,7 +146,7 @@ export function ChatEntryMotion({
 
     function play() {
       if (!cancelled && !settleRef.current && animateOnMountRef.current) {
-        playEntry(progress);
+        playEntry(progress, delayMsRef.current);
         hasPlayedEntry.current = true;
       }
     }
@@ -169,25 +157,14 @@ export function ChatEntryMotion({
       if (!animateOnMount) {
         return;
       }
-      if (isWeb && typeof IntersectionObserver === "function") {
-        const node = hostElementRef.current;
-        if (node) {
-          const disconnect = observeChatViewportEntry(node, play);
-          return () => {
-            cancelled = true;
-            disconnect();
-          };
-        }
-      }
+      // Play on mount. Waiting for IntersectionObserver left sent rows at
+      // opacity 0 behind the timeline clip until eligibility ended and snapped.
       play();
       return () => {
         cancelled = true;
       };
     }
 
-    // Eligibility can end while the row is still waiting for the chat viewport.
-    // Disconnecting that observer without this snap leaves progress at 0, so a
-    // completed off-screen row stays transparent after the user scrolls to it.
     if (!animateOnMount) {
       if (!hasPlayedEntry.current) {
         cancelAnimation(progress);
@@ -223,16 +200,11 @@ export function ChatEntryMotion({
 
   const animatedStyle = useAnimatedStyle(() => ({
     opacity: progress.value,
-    transform: [{ translateY: CHAT_ENTRY_OFFSET_PX * (1 - progress.value) }],
+    transform: [{ translateY: offsetPx * (1 - progress.value) }],
   }));
 
   return (
-    <Animated.View
-      ref={setHostRef}
-      style={[style, animatedStyle]}
-      testID={testID}
-      dataSet={dataSet}
-    >
+    <Animated.View style={[style, animatedStyle]} testID={testID} dataSet={dataSet}>
       {children}
     </Animated.View>
   );
@@ -275,11 +247,7 @@ export function applyGrowthHeight(
     cancelAnimation(height);
     if (options?.easeInitial) {
       height.value = 0;
-      height.value = withTiming(nextHeight, {
-        duration: CHAT_ENTRY_DURATION_MS,
-        easing: CHAT_ENTRY_EASING,
-        reduceMotion: ReduceMotion.System,
-      });
+      height.value = withTiming(nextHeight, MOTION_ARRIVE_TIMING);
       return;
     }
     height.value = nextHeight;
@@ -291,14 +259,20 @@ export function applyGrowthHeight(
     return;
   }
   // Continue from the in-flight height. Snapping to the last target made
-  // character-paced reveal restart a 160ms ease every frame, which reads as
-  // stutter. A burst still eases the remaining distance on the shared curve.
+  // character-paced reveal restart the arrive ease every frame, which reads as
+  // stutter. Keep clipping so the new line rises in; a catch-up or a lump
+  // bigger than one line uses the burst window so 200ms does not restart on
+  // every token.
   cancelAnimation(height);
-  height.value = withTiming(nextHeight, {
-    duration: CHAT_ENTRY_DURATION_MS,
-    easing: CHAT_ENTRY_EASING,
-    reduceMotion: ReduceMotion.System,
+  const visualHeight = height.value;
+  const duration = resolveStreamBurstDuration({
+    inFlight: visualHeight >= 0 && visualHeight < previousHeight - 0.5,
+    distancePx: nextHeight - Math.max(visualHeight, 0),
   });
+  height.value = withTiming(
+    nextHeight,
+    duration === MOTION_BURST_DURATION_MS ? MOTION_BURST_TIMING : MOTION_ARRIVE_TIMING,
+  );
 }
 
 /** Clips in-place markdown growth so wrapped lines rise into view instead of popping. */

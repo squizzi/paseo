@@ -1024,6 +1024,8 @@ export const ko: TranslationResources = {
           approved: "승인됨",
           requestedChanges: "변경 요청됨",
           reviewed: "리뷰됨",
+          sortOldest: "오래된순",
+          sortNewest: "최신순",
           sortOldestAccessible: "활동을 오래된순으로 정렬",
           sortNewestAccessible: "활동을 최신순으로 정렬",
         },

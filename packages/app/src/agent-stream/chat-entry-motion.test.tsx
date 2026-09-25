@@ -54,6 +54,8 @@ vi.mock("react-native-reanimated", async () => {
     default: { View },
     cancelAnimation: vi.fn(),
     Easing: {
+      bezier: () => "arrive",
+      in: (easing: unknown) => easing,
       out: (easing: unknown) => easing,
       cubic: "cubic",
     },
@@ -61,6 +63,7 @@ vi.mock("react-native-reanimated", async () => {
       duration: () => ({ easing: () => undefined }),
     },
     ReduceMotion: { System: "system" },
+    withDelay: (_delay: unknown, animation: unknown) => animation,
     useAnimatedStyle: (factory: () => unknown) => factory(),
     useSharedValue: (initial: number) => {
       const [, setVersion] = ReactModule.useState(0);
@@ -87,6 +90,7 @@ vi.mock("react-native-reanimated", async () => {
 });
 
 import { withTiming, type SharedValue } from "react-native-reanimated";
+import { MOTION_ARRIVE_DURATION_MS, MOTION_BURST_DURATION_MS } from "@/styles/motion-tokens";
 import {
   applyGrowthHeight,
   ChatEntryMotion,
@@ -94,38 +98,15 @@ import {
 } from "./chat-entry-motion";
 import type { StreamLayoutItem } from "./layout";
 
-interface ViewportIntersection {
-  isIntersecting: boolean;
-}
-
-interface FakeObserver {
-  callback: (entries: ViewportIntersection[]) => void;
-  disconnect: ReturnType<typeof vi.fn>;
-}
-
 describe("ChatEntryMotion", () => {
   let root: Root | null = null;
   let container: HTMLDivElement | null = null;
-  let observers: FakeObserver[] = [];
 
   beforeEach(() => {
     Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", {
       value: true,
       configurable: true,
     });
-    observers = [];
-    vi.stubGlobal(
-      "IntersectionObserver",
-      class FakeIntersectionObserver {
-        disconnect: ReturnType<typeof vi.fn>;
-        constructor(callback: (entries: ViewportIntersection[]) => void) {
-          this.disconnect = vi.fn();
-          observers.push({ callback, disconnect: this.disconnect });
-        }
-        observe() {}
-        unobserve() {}
-      },
-    );
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -140,7 +121,6 @@ describe("ChatEntryMotion", () => {
     root = null;
     container?.remove();
     container = null;
-    observers = [];
     vi.unstubAllGlobals();
   });
 
@@ -164,27 +144,15 @@ describe("ChatEntryMotion", () => {
     return Number.parseFloat(entry.style.opacity);
   }
 
-  it("snaps a completed off-screen row to rest instead of leaving it transparent", () => {
+  it("plays entry motion on mount so a sent row is not left invisible", () => {
     renderEntry(true);
-    expect(observers).toHaveLength(1);
-    expect(entryOpacity()).toBe(0);
-
-    renderEntry(false);
-    expect(observers[0]?.disconnect).toHaveBeenCalled();
+    expect(vi.mocked(withTiming)).toHaveBeenCalled();
     expect(entryOpacity()).toBe(1);
   });
 
-  it("plays entry motion once the off-screen row intersects the chat viewport", () => {
-    renderEntry(true);
-    expect(entryOpacity()).toBe(0);
-
-    const observer = observers[0];
-    if (!observer) {
-      throw new Error("Expected a chat viewport observer");
-    }
-    act(() => {
-      observer.callback([{ isIntersecting: true }]);
-    });
+  it("stays at rest when the row should not animate", () => {
+    vi.mocked(withTiming).mockClear();
+    renderEntry(false);
     expect(entryOpacity()).toBe(1);
   });
 });
@@ -216,16 +184,54 @@ describe("applyGrowthHeight", () => {
     return { writes, height };
   }
 
-  it("retargets continued growth instead of snapping back to the last target", () => {
+  it("eases a quiet wrap on the arrive window", () => {
+    const { writes, height } = createHeight(-1);
+    const contentHeightRef = { current: null as number | null };
+    vi.mocked(withTiming).mockClear();
+
+    applyGrowthHeight(height, contentHeightRef, 100);
+    writes.length = 0;
+    vi.mocked(withTiming).mockClear();
+    applyGrowthHeight(height, contentHeightRef, 118);
+
+    expect(writes).toEqual([118]);
+    expect(vi.mocked(withTiming)).toHaveBeenCalledWith(
+      118,
+      expect.objectContaining({ duration: MOTION_ARRIVE_DURATION_MS }),
+    );
+  });
+
+  it("eases a lump bigger than one line on the burst window", () => {
     const { writes, height } = createHeight(-1);
     const contentHeightRef = { current: null as number | null };
 
     applyGrowthHeight(height, contentHeightRef, 100);
-    expect(writes).toEqual([100]);
-
     writes.length = 0;
-    applyGrowthHeight(height, contentHeightRef, 118);
-    expect(writes).toEqual([118]);
+    vi.mocked(withTiming).mockClear();
+    applyGrowthHeight(height, contentHeightRef, 148);
+
+    expect(writes).toEqual([148]);
+    expect(vi.mocked(withTiming)).toHaveBeenCalledWith(
+      148,
+      expect.objectContaining({ duration: MOTION_BURST_DURATION_MS }),
+    );
+  });
+
+  it("eases an in-flight catch-up on the burst window", () => {
+    const { writes, height } = createHeight(-1);
+    const contentHeightRef = { current: null as number | null };
+
+    applyGrowthHeight(height, contentHeightRef, 100);
+    height.value = 52;
+    writes.length = 0;
+    vi.mocked(withTiming).mockClear();
+    applyGrowthHeight(height, contentHeightRef, 140);
+
+    expect(writes).toEqual([140]);
+    expect(vi.mocked(withTiming)).toHaveBeenCalledWith(
+      140,
+      expect.objectContaining({ duration: MOTION_BURST_DURATION_MS }),
+    );
   });
 
   it("eases the first measurement from zero when the clip is revealing details", () => {
@@ -238,7 +244,7 @@ describe("applyGrowthHeight", () => {
     expect(writes).toEqual([0, 80]);
     expect(vi.mocked(withTiming)).toHaveBeenCalledWith(
       80,
-      expect.objectContaining({ duration: 160 }),
+      expect.objectContaining({ duration: MOTION_ARRIVE_DURATION_MS }),
     );
   });
 });
@@ -338,5 +344,35 @@ describe("shouldAnimateStreamItemEntry", () => {
       "streaming",
     );
     expect(shouldAnimateStreamItemEntry(item, new Set(["client-msg-1"]), null)).toBe(true);
+  });
+
+  it("animates a new user message after history is hydrated", () => {
+    const item = makeLayoutItem(
+      {
+        kind: "user_message",
+        id: "user-2",
+        clientMessageId: "client-msg-2",
+        text: "Hi again",
+        timestamp: new Date(),
+      },
+      "complete",
+    );
+    expect(shouldAnimateStreamItemEntry(item, new Set(), new Set(["older-user"]))).toBe(true);
+  });
+
+  it("does not animate user messages already present at hydration", () => {
+    const item = makeLayoutItem(
+      {
+        kind: "user_message",
+        id: "user-1",
+        clientMessageId: "client-msg-1",
+        text: "Hi",
+        timestamp: new Date(),
+      },
+      "complete",
+    );
+    expect(shouldAnimateStreamItemEntry(item, new Set(), new Set(["user-1", "client-msg-1"]))).toBe(
+      false,
+    );
   });
 });

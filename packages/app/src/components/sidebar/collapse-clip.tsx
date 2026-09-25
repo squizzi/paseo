@@ -2,8 +2,6 @@ import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from "
 import { View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from "react-native";
 import Animated, {
   cancelAnimation,
-  Easing,
-  ReduceMotion,
   runOnJS,
   useAnimatedStyle,
   useReducedMotion,
@@ -11,18 +9,12 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { StyleSheet } from "react-native-unistyles";
+import { resolveCollapseClipResize } from "@/components/collapse-clip-motion";
 import {
   resolveSidebarCollapseClipFrameStyle,
-  resolveSidebarCollapseClipResize,
   SIDEBAR_ITEM_MOTION_AUTO_HEIGHT,
-  SIDEBAR_ITEM_MOTION_DURATION_MS,
 } from "@/components/sidebar/item-motion";
-
-const COLLAPSE_TIMING = {
-  duration: SIDEBAR_ITEM_MOTION_DURATION_MS,
-  easing: Easing.out(Easing.cubic),
-  reduceMotion: ReduceMotion.System,
-};
+import { MOTION_ARRIVE_TIMING, MOTION_EXIT_TIMING } from "@/styles/motion";
 
 export function SidebarCollapseClip({
   expanded,
@@ -69,17 +61,17 @@ export function SidebarCollapseClip({
       if (nextHeight > 0) {
         contentHeightRef.current = nextHeight;
       }
-      const decision = resolveSidebarCollapseClipResize({
+      const decision = resolveCollapseClipResize({
         expanded,
         settledOpen: settledOpenRef.current,
-        nextHeight,
-        targetHeight: targetHeightRef.current,
+        nextSize: nextHeight,
+        targetSize: targetHeightRef.current,
       });
       if (decision.action === "ignore") {
         return;
       }
       targetHeightRef.current = decision.to;
-      height.value = withTiming(decision.to, COLLAPSE_TIMING, (finished) => {
+      height.value = withTiming(decision.to, MOTION_ARRIVE_TIMING, (finished) => {
         if (finished) {
           runOnJS(markSettledOpen)();
         }
@@ -128,7 +120,7 @@ export function SidebarCollapseClip({
     }
     cancelAnimation(height);
     height.value = from;
-    height.value = withTiming(0, COLLAPSE_TIMING, (finished) => {
+    height.value = withTiming(0, MOTION_EXIT_TIMING, (finished) => {
       if (finished) {
         runOnJS(unmountCollapsed)();
       }

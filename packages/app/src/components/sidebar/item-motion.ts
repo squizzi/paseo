@@ -1,4 +1,3 @@
-export const SIDEBAR_ITEM_MOTION_DURATION_MS = 180;
 export const SIDEBAR_ITEM_MOTION_OFFSET = 8;
 /** Shared-value sentinel: do not constrain height so collapse/expand can reflow. */
 export const SIDEBAR_ITEM_MOTION_AUTO_HEIGHT = -1;
@@ -132,24 +131,6 @@ export function resolveSidebarItemMotionContentResize(input: {
     return { action: "record", height: input.nextHeight };
   }
   return { action: "ease", from: input.previousHeight, to: input.nextHeight };
-}
-
-export type SidebarCollapseClipResize = { action: "ignore" } | { action: "ease"; to: number };
-
-/** Child-list accordion: keep easing toward the latest measured height, never snap back. */
-export function resolveSidebarCollapseClipResize(input: {
-  expanded: boolean;
-  settledOpen: boolean;
-  nextHeight: number;
-  targetHeight: number;
-}): SidebarCollapseClipResize {
-  if (!input.expanded || input.settledOpen || input.nextHeight <= 0) {
-    return { action: "ignore" };
-  }
-  if (Math.abs(input.nextHeight - input.targetHeight) <= 0.5) {
-    return { action: "ignore" };
-  }
-  return { action: "ease", to: input.nextHeight };
 }
 
 interface SidebarCollapseClipFrameStyle {

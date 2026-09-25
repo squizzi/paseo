@@ -19,10 +19,12 @@ import {
   type StyleProp,
   type ViewStyle,
 } from "react-native";
-import { Keyframe, runOnJS } from "react-native-reanimated";
+import { runOnJS } from "react-native-reanimated";
 import { StyleSheet } from "react-native-unistyles";
 import { FloatingScrollView, FloatingSurface } from "@/components/ui/floating";
+import { menuOverlayMotion } from "@/components/ui/overlay-motion";
 import { isWeb } from "@/constants/platform";
+import { MOTION_OVERLAY_ARRIVE_DURATION_MS } from "@/styles/motion";
 import type { KeyboardFocusScope } from "@/keyboard/actions";
 import {
   getOverlayRoot,
@@ -41,17 +43,6 @@ import {
 } from "./menu-anchor";
 
 const SCROLL_CONTENT_STYLE = { flexGrow: 1 } as const;
-const CONTENT_ENTERING_DURATION_MS = 150;
-
-const contentEntering = new Keyframe({
-  0: { opacity: 0, transform: [{ scale: 0.97 }] },
-  100: { opacity: 1, transform: [{ scale: 1 }] },
-}).duration(CONTENT_ENTERING_DURATION_MS);
-
-const contentExiting = new Keyframe({
-  0: { opacity: 1, transform: [{ scale: 1 }] },
-  100: { opacity: 0, transform: [{ scale: 0.97 }] },
-}).duration(100);
 
 function releaseFixedMenuHeight(surfaceNativeID: string): void {
   if (!isWeb) return;
@@ -87,7 +78,7 @@ function useReleaseFixedMenuHeight({
       }
     };
     const timers: ReturnType<typeof setTimeout>[] = [
-      setTimeout(release, CONTENT_ENTERING_DURATION_MS),
+      setTimeout(release, MOTION_OVERLAY_ARRIVE_DURATION_MS),
     ];
 
     if (contentSize) {
@@ -387,11 +378,11 @@ export function AnchoredSurface({
         dataSet={surfaceDataSet}
         style={styles.content}
         frameStyle={frameStyle}
-        entering={placed ? contentEntering : undefined}
+        entering={placed ? menuOverlayMotion.entering[actualPlacement] : undefined}
         exiting={
           !placed || isWeb || !onExited
             ? undefined
-            : contentExiting.withCallback((finished) => {
+            : menuOverlayMotion.exiting[actualPlacement].withCallback((finished) => {
                 "worklet";
                 if (finished) {
                   runOnJS(onExited)();

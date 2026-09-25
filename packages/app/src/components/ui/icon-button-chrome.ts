@@ -1,6 +1,12 @@
 import type { StyleProp, ViewStyle } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { HEADER_CONTROL_HEIGHT } from "@/components/ui/control-geometry";
+import {
+  MOTION_ARRIVE_CSS,
+  MOTION_HOVER_DURATION_MS,
+  MOTION_HOVER_SCALE,
+  MOTION_PRESS_SCALE,
+} from "@/styles/motion-tokens";
 import { ICON_SIZE } from "@/styles/theme";
 
 export { extraMutedIconColorMapping, mutedIconColorMapping } from "@/components/ui/icon-color";
@@ -30,6 +36,17 @@ interface IconButtonChromeOptions {
   style?: StyleProp<ViewStyle>;
 }
 
+function resolveIconButtonInteraction(state?: IconButtonChromeState) {
+  const hovered = Boolean(state?.hovered);
+  const pressed = Boolean(state?.pressed);
+  const locked = Boolean(state?.active || state?.open);
+  return {
+    highlighted: Boolean(state?.active || hovered || pressed || state?.open),
+    hoverScaled: hovered && !pressed && !locked,
+    pressScaled: pressed,
+  };
+}
+
 /** Shared hitbox and interaction chrome for icon-only header and toolbar controls. */
 export function iconButtonChromeStyle({
   size,
@@ -38,11 +55,14 @@ export function iconButtonChromeStyle({
   disabled = false,
   style,
 }: IconButtonChromeOptions): StyleProp<ViewStyle> {
-  const highlighted = state?.active || state?.hovered || state?.pressed || state?.open;
+  const interaction = resolveIconButtonInteraction(state);
   return [
     resolveIconButtonFrame(size, compact),
+    styles.interactiveMotion,
     style,
-    highlighted ? styles.highlighted : null,
+    interaction.highlighted ? styles.highlighted : null,
+    interaction.hoverScaled ? styles.hoverScale : null,
+    interaction.pressScaled ? styles.pressScale : null,
     disabled ? styles.disabled : null,
   ];
 }
@@ -106,6 +126,17 @@ const styles = StyleSheet.create((theme) => ({
   },
   highlighted: {
     backgroundColor: theme.colors.interactionHighlight,
+  },
+  interactiveMotion: {
+    transitionProperty: "background-color, transform",
+    transitionDuration: `${MOTION_HOVER_DURATION_MS}ms`,
+    transitionTimingFunction: MOTION_ARRIVE_CSS,
+  },
+  hoverScale: {
+    transform: [{ scale: MOTION_HOVER_SCALE }],
+  },
+  pressScale: {
+    transform: [{ scale: MOTION_PRESS_SCALE }],
   },
   disabled: {
     opacity: theme.opacity[50],

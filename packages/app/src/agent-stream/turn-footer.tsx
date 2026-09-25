@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useMemo, type ReactNode } from "react";
+import React, { memo, useCallback, useMemo, useRef, type ReactNode } from "react";
 import { View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { MAX_CONTENT_WIDTH } from "@/constants/layout";
@@ -59,6 +59,15 @@ export const TurnFooter = memo(function TurnFooter({
   onForkAssistantTurn?: AssistantTurnForkHandler;
   onForkInFlightTurn?: InFlightTurnForkHandler;
 }) {
+  const wasRunningRef = useRef(isRunning);
+  const animateCompletedChromeRef = useRef(false);
+  if (isRunning) {
+    animateCompletedChromeRef.current = false;
+  } else if (wasRunningRef.current) {
+    animateCompletedChromeRef.current = true;
+  }
+  wasRunningRef.current = isRunning;
+  const animateCompletedChrome = animateCompletedChromeRef.current;
   if (isRunning) {
     return (
       <TurnFooterRow>
@@ -80,6 +89,7 @@ export const TurnFooter = memo(function TurnFooter({
       startIndex={host.startIndex}
       supportsTimelineCursor={supportsTimelineCursor}
       onForkAssistantTurn={onForkAssistantTurn}
+      animateChrome={animateCompletedChrome}
     />
   );
 });
@@ -91,6 +101,7 @@ export const CompletedTurnFooterRow = memo(function CompletedTurnFooterRow({
   startIndex,
   supportsTimelineCursor,
   onForkAssistantTurn,
+  animateChrome = false,
 }: {
   strategy: TurnContentStrategy;
   items: StreamItem[];
@@ -98,6 +109,7 @@ export const CompletedTurnFooterRow = memo(function CompletedTurnFooterRow({
   startIndex: number;
   supportsTimelineCursor: boolean;
   onForkAssistantTurn?: AssistantTurnForkHandler;
+  animateChrome?: boolean;
 }) {
   return (
     <TurnFooterRow>
@@ -108,6 +120,7 @@ export const CompletedTurnFooterRow = memo(function CompletedTurnFooterRow({
         startIndex={startIndex}
         supportsTimelineCursor={supportsTimelineCursor}
         onForkAssistantTurn={onForkAssistantTurn}
+        animateChrome={animateChrome}
       />
     </TurnFooterRow>
   );
@@ -164,6 +177,7 @@ function CompletedTurnFooter({
   startIndex,
   supportsTimelineCursor,
   onForkAssistantTurn,
+  animateChrome = false,
 }: {
   strategy: TurnContentStrategy;
   items: StreamItem[];
@@ -171,6 +185,7 @@ function CompletedTurnFooter({
   startIndex: number;
   supportsTimelineCursor: boolean;
   onForkAssistantTurn?: AssistantTurnForkHandler;
+  animateChrome?: boolean;
 }) {
   const getContent = useCallback(
     () =>
@@ -202,6 +217,7 @@ function CompletedTurnFooter({
         completedAt={timing?.completedAt}
         durationMs={timing?.durationMs}
         onFork={boundary && onForkAssistantTurn ? handleFork : undefined}
+        animateChrome={animateChrome}
       />
     </View>
   );
