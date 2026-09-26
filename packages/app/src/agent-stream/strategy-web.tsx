@@ -44,8 +44,6 @@ import {
 import { useChatFindSelectedMessageId } from "@/agent-stream/chat-find";
 import { getStreamItemMessageId } from "./presentation";
 import { useScrollToMessage } from "./use-scroll-to-message.web";
-import { MOTION_ARRIVE_CSS, resolveStreamBurstDuration } from "@/styles/motion-tokens";
-import { CHAT_ENTRY_DURATION_MS } from "./chat-entry-motion";
 
 interface CreateWebStreamStrategyInput {
   isMobileBreakpoint: boolean;
@@ -60,9 +58,16 @@ interface HistoryStartPrependAnchor {
 type ScrollBehaviorLike = "auto" | "smooth";
 
 const WEB_BOTTOM_SETTLE_TIMEOUT_MS = 200;
-// The timeline rise and every per-row layout transition move together on an
-// insertion, so they share one duration; a mismatch desyncs into a settle jump.
-const STREAM_RISE_DURATION_MS = CHAT_ENTRY_DURATION_MS;
+// A continuous per-frame decay toward zero, not a fixed-duration tween: a
+// retarget mid-rise (common while streaming) just nudges the running offset,
+// so the existing decay continues at whatever velocity it was already at
+// instead of restarting from the curve's fast initial slope. That restart
+// was position-continuous but velocity-discontinuous, which read as small
+// stutters when updates landed faster than the tween's own duration.
+// Time-constant chosen so ~3x it (the point a decay is ~95% settled) roughly
+// matches the previous fixed rise duration's feel.
+const CONTENT_RISE_TIME_CONSTANT_MS = 110;
+const CONTENT_RISE_SETTLE_EPSILON_PX = 0.5;
 const USER_SCROLL_DELTA_EPSILON = 1;
 const BOTTOM_OVERSCROLL_TOLERANCE_PX = 2;
 const AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 64;
@@ -216,15 +221,6 @@ function scrollElementToBottom(
   });
 }
 
-function readElementTranslateY(element: HTMLElement): number {
-  const transform = window.getComputedStyle(element).transform;
-  if (!transform || transform === "none") {
-    return 0;
-  }
-  const matrix = new DOMMatrixReadOnly(transform);
-  return Number.isFinite(matrix.m42) ? matrix.m42 : 0;
-}
-
 function syncNearBottom(
   scrollContainer: HTMLElement | null,
   onNearBottomChange: (value: boolean) => void,
@@ -375,7 +371,9 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   const lastTouchClientYRef = useRef<number | null>(null);
   const pendingAutoScrollFrameRef = useRef<number | null>(null);
   const pendingAutoScrollTimeoutRef = useRef<number | null>(null);
-  const contentRiseAnimationRef = useRef<Animation | null>(null);
+  const contentRiseOffsetRef = useRef(0);
+  const contentRiseFrameRef = useRef<number | null>(null);
+  const contentRiseLastFrameTimeRef = useRef<number | null>(null);
   const pendingVirtualRowMeasureFramesRef = useRef(new Map<Element, number>());
   const historyStartReadyRef = useRef(false);
   const [historyStartPaginationState, setHistoryStartPaginationState] = useState(
@@ -664,53 +662,74 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     }
   }, []);
 
-  const cancelContentRise = useCallback(() => {
-    contentRiseAnimationRef.current?.cancel();
-    contentRiseAnimationRef.current = null;
-  }, []);
-
-  const animateContentRise = useCallback((distance: number) => {
+  const applyContentRiseOffset = useCallback((offset: number) => {
     const timelineNode = timelineRef.current;
-    if (
-      !timelineNode ||
-      Math.abs(distance) <= 0.5 ||
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches
-    ) {
+    if (!timelineNode) {
       return;
     }
-    // Symmetric for both directions: a growing block (positive distance) rises
-    // from below into place, a shrinking one (negative distance, e.g. collapsing
-    // a tool-call group) settles from above. Clamping to 0 was fine when only
-    // growth reached this path; it would zero out and drop a legitimate negative
-    // starting offset for a shrink.
-    const startingOffset = readElementTranslateY(timelineNode) + distance;
-    const previous = contentRiseAnimationRef.current;
-    const animation = timelineNode.animate(
-      [{ transform: `translateY(${startingOffset}px)` }, { transform: "translateY(0px)" }],
-      {
-        duration: resolveStreamBurstDuration({
-          inFlight: previous !== null,
-          quietDurationMs: STREAM_RISE_DURATION_MS,
-        }),
-        easing: MOTION_ARRIVE_CSS,
-        fill: "both",
-      },
-    );
-    contentRiseAnimationRef.current = animation;
-    // Replace after the new fill:both effect is applied. Cancelling first would
-    // drop the in-flight offset for a frame, which reads as a 10–20px jump when
-    // the next footer or token lands during a rise.
-    previous?.cancel();
-    animation.addEventListener(
-      "finish",
-      () => {
-        if (contentRiseAnimationRef.current === animation) {
-          contentRiseAnimationRef.current = null;
-        }
-      },
-      { once: true },
-    );
+    timelineNode.style.transform = offset === 0 ? "" : `translateY(${offset}px)`;
   }, []);
+
+  const stepContentRise = useCallback(
+    (timestamp: number) => {
+      const lastFrameTime = contentRiseLastFrameTimeRef.current;
+      contentRiseLastFrameTimeRef.current = timestamp;
+      // No decay on the frame that starts the loop (or resumes after a gap) --
+      // there is no elapsed interval yet to decay over.
+      const deltaMs = lastFrameTime === null ? 0 : timestamp - lastFrameTime;
+      const decay = 1 - Math.exp(-deltaMs / CONTENT_RISE_TIME_CONSTANT_MS);
+      const next = contentRiseOffsetRef.current * (1 - decay);
+      if (Math.abs(next) < CONTENT_RISE_SETTLE_EPSILON_PX) {
+        contentRiseOffsetRef.current = 0;
+        contentRiseLastFrameTimeRef.current = null;
+        contentRiseFrameRef.current = null;
+        applyContentRiseOffset(0);
+        return;
+      }
+      contentRiseOffsetRef.current = next;
+      applyContentRiseOffset(next);
+      contentRiseFrameRef.current = window.requestAnimationFrame(stepContentRise);
+    },
+    [applyContentRiseOffset],
+  );
+
+  const cancelContentRise = useCallback(() => {
+    if (contentRiseFrameRef.current !== null) {
+      window.cancelAnimationFrame(contentRiseFrameRef.current);
+      contentRiseFrameRef.current = null;
+    }
+    contentRiseLastFrameTimeRef.current = null;
+    contentRiseOffsetRef.current = 0;
+    applyContentRiseOffset(0);
+  }, [applyContentRiseOffset]);
+
+  const animateContentRise = useCallback(
+    (distance: number) => {
+      if (
+        !timelineRef.current ||
+        Math.abs(distance) <= 0.5 ||
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ) {
+        return;
+      }
+      // Symmetric for both directions: a growing block (positive distance) rises
+      // from below into place, a shrinking one (negative distance, e.g. collapsing
+      // a tool-call group) settles from above.
+      //
+      // A retarget while already rising just nudges the running offset and lets
+      // the existing per-frame decay (stepContentRise) keep going -- it never
+      // restarts the loop, so there is no fresh "attack" slope to jar against
+      // the outgoing velocity the way replaying a fixed-duration tween would.
+      contentRiseOffsetRef.current += distance;
+      applyContentRiseOffset(contentRiseOffsetRef.current);
+      if (contentRiseFrameRef.current === null) {
+        contentRiseFrameRef.current = window.requestAnimationFrame(stepContentRise);
+      }
+    },
+    [applyContentRiseOffset, stepContentRise],
+  );
+
+  useEffect(() => cancelContentRise, [cancelContentRise]);
 
   const clearMouseScrollGesture = useCallback(() => {
     const gesture = mouseScrollGestureRef.current;

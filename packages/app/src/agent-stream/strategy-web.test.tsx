@@ -6,7 +6,6 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RetainedPanelActivity } from "@/components/retained-panel";
-import { MOTION_ARRIVE_DURATION_MS, MOTION_BURST_DURATION_MS } from "@/styles/motion-tokens";
 import type { StreamItem } from "@/types/stream";
 import type { StreamRenderInput, StreamSegmentRenderers, StreamViewportHandle } from "./strategy";
 import { createWebStreamStrategy } from "./strategy-web";
@@ -61,6 +60,8 @@ describe("createWebStreamStrategy", () => {
   let originalScrollTo: HTMLElement["scrollTo"] | undefined;
   let originalAnimate: HTMLElement["animate"] | undefined;
   let originalOffsetHeight: PropertyDescriptor | undefined;
+  let originalRequestAnimationFrame: typeof window.requestAnimationFrame | undefined;
+  let originalCancelAnimationFrame: typeof window.cancelAnimationFrame | undefined;
 
   beforeEach(() => {
     Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", {
@@ -89,6 +90,8 @@ describe("createWebStreamStrategy", () => {
         return 24;
       },
     });
+    originalRequestAnimationFrame = window.requestAnimationFrame;
+    originalCancelAnimationFrame = window.cancelAnimationFrame;
   });
 
   afterEach(() => {
@@ -114,6 +117,16 @@ describe("createWebStreamStrategy", () => {
       Object.defineProperty(HTMLElement.prototype, "offsetHeight", originalOffsetHeight);
     } else {
       Reflect.deleteProperty(HTMLElement.prototype, "offsetHeight");
+    }
+    if (originalRequestAnimationFrame) {
+      window.requestAnimationFrame = originalRequestAnimationFrame;
+    } else {
+      Reflect.deleteProperty(window, "requestAnimationFrame");
+    }
+    if (originalCancelAnimationFrame) {
+      window.cancelAnimationFrame = originalCancelAnimationFrame;
+    } else {
+      Reflect.deleteProperty(window, "cancelAnimationFrame");
     }
     vi.restoreAllMocks();
   });
@@ -1392,7 +1405,13 @@ describe("createWebStreamStrategy", () => {
       });
     });
     HTMLElement.prototype.scrollTo = scrollTo;
-    const animate = vi.mocked(HTMLElement.prototype.animate);
+    const rafCallbackRef: { current: FrameRequestCallback | null } = { current: null };
+    const requestAnimationFrame = vi.fn((callback: FrameRequestCallback) => {
+      rafCallbackRef.current = callback;
+      return 1;
+    });
+    window.requestAnimationFrame = requestAnimationFrame as typeof window.requestAnimationFrame;
+    window.cancelAnimationFrame = vi.fn() as typeof window.cancelAnimationFrame;
 
     const strategy = createWebStreamStrategy({ isMobileBreakpoint: true });
     const liveHead = [userMessage(1)];
@@ -1459,25 +1478,31 @@ describe("createWebStreamStrategy", () => {
     Object.defineProperty(scrollContainer, "scrollTop", { configurable: true, value: 400 });
     act(() => scrollContainer.dispatchEvent(new Event("scroll")));
     scrollTo.mockClear();
-    animate.mockClear();
+    requestAnimationFrame.mockClear();
 
     Object.defineProperty(scrollContainer, "scrollHeight", { configurable: true, value: 860 });
     act(() => notifyResize(contentNode));
 
+    // The compensating offset is applied synchronously in the same resize
+    // handler that snaps scrollTop, so the timeline never paints a frame
+    // where the content has jumped but the offset hasn't landed yet.
     expect(scrollTo).toHaveBeenCalledWith({ top: 860, behavior: "auto" });
-    expect(animate).toHaveBeenCalledTimes(1);
-    expect(animate.mock.instances[0]).toBe(timeline);
-    expect(animate.mock.calls[0]?.[0]).toEqual([
-      { transform: "translateY(60px)" },
-      { transform: "translateY(0px)" },
-    ]);
-    expect(animate.mock.calls[0]?.[1]).toMatchObject({
-      fill: "both",
-      duration: MOTION_ARRIVE_DURATION_MS,
-    });
+    expect(timeline.style.transform).toBe("translateY(60px)");
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+
+    // First frame only records the baseline timestamp (no elapsed interval
+    // to decay over yet); the second frame decays it toward zero.
+    rafCallbackRef.current?.(1000);
+    expect(timeline.style.transform).toBe("translateY(60px)");
+    rafCallbackRef.current?.(1050);
+    expect(timeline.style.transform).not.toBe("translateY(60px)");
+    const [, offsetText] = /^translateY\(([-\d.]+)px\)$/.exec(timeline.style.transform) ?? [];
+    const offset = Number(offsetText);
+    expect(offset).toBeGreaterThan(0);
+    expect(offset).toBeLessThan(60);
   });
 
-  it("starts the next timeline rise before cancelling an in-flight rise", () => {
+  it("retargets an in-flight rise without restarting its decay", () => {
     const observed = new Map<
       Element,
       { callback: ResizeObserverCallback; observer: ResizeObserver }
@@ -1523,17 +1548,13 @@ describe("createWebStreamStrategy", () => {
       });
     });
     HTMLElement.prototype.scrollTo = scrollTo;
-    const firstRise = {
-      addEventListener: vi.fn(),
-      cancel: vi.fn(),
-    };
-    const secondRise = {
-      addEventListener: vi.fn(),
-      cancel: vi.fn(),
-    };
-    const animate = vi.mocked(HTMLElement.prototype.animate);
-    animate.mockReturnValueOnce(firstRise as unknown as Animation);
-    animate.mockReturnValueOnce(secondRise as unknown as Animation);
+    const rafCallbackRef: { current: FrameRequestCallback | null } = { current: null };
+    const requestAnimationFrame = vi.fn((callback: FrameRequestCallback) => {
+      rafCallbackRef.current = callback;
+      return 1;
+    });
+    window.requestAnimationFrame = requestAnimationFrame as typeof window.requestAnimationFrame;
+    window.cancelAnimationFrame = vi.fn() as typeof window.cancelAnimationFrame;
 
     const strategy = createWebStreamStrategy({ isMobileBreakpoint: true });
     const liveHead = [userMessage(1)];
@@ -1589,51 +1610,35 @@ describe("createWebStreamStrategy", () => {
     Object.defineProperty(scrollContainer, "scrollTop", { configurable: true, value: 400 });
     act(() => scrollContainer.dispatchEvent(new Event("scroll")));
     scrollTo.mockClear();
-    animate.mockClear();
-    animate.mockReturnValueOnce(firstRise as unknown as Animation);
-    animate.mockReturnValueOnce(secondRise as unknown as Animation);
+    requestAnimationFrame.mockClear();
 
     Object.defineProperty(scrollContainer, "scrollHeight", { configurable: true, value: 860 });
     act(() => notifyResize(contentNode));
 
-    const originalGetComputedStyle = window.getComputedStyle.bind(window);
-    const originalDOMMatrixReadOnly = globalThis.DOMMatrixReadOnly;
-    class TestDOMMatrixReadOnly {
-      m42: number;
-      constructor(transform: string) {
-        const match = /matrix\([^,]+,[^,]+,[^,]+,[^,]+,[^,]+,\s*([^)]+)\)/.exec(transform);
-        this.m42 = match ? Number(match[1]) : 0;
-      }
-    }
-    Object.defineProperty(globalThis, "DOMMatrixReadOnly", {
-      configurable: true,
-      value: TestDOMMatrixReadOnly,
-    });
-    window.getComputedStyle = ((element: Element) => {
-      if (element === timeline) {
-        return { transform: "matrix(1, 0, 0, 1, 0, 18)" } as CSSStyleDeclaration;
-      }
-      return originalGetComputedStyle(element);
-    }) as typeof window.getComputedStyle;
+    expect(timeline.style.transform).toBe("translateY(60px)");
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+
+    // Let the running decay progress partway before the next retarget lands.
+    // Each tick that doesn't settle reschedules itself, so the call count
+    // keeps climbing on its own -- that's the loop continuing, not a restart.
+    rafCallbackRef.current?.(1000);
+    rafCallbackRef.current?.(1050);
+    const [, midOffsetText] = /^translateY\(([-\d.]+)px\)$/.exec(timeline.style.transform) ?? [];
+    const midOffset = Number(midOffsetText);
+    expect(midOffset).toBeGreaterThan(0);
+    expect(midOffset).toBeLessThan(60);
+    const callsBeforeRetarget = requestAnimationFrame.mock.calls.length;
 
     Object.defineProperty(scrollContainer, "scrollHeight", { configurable: true, value: 880 });
     act(() => notifyResize(contentNode));
-    window.getComputedStyle = originalGetComputedStyle;
-    Object.defineProperty(globalThis, "DOMMatrixReadOnly", {
-      configurable: true,
-      value: originalDOMMatrixReadOnly,
-    });
 
-    expect(animate).toHaveBeenCalledTimes(2);
-    expect(animate.mock.calls[1]?.[0]).toEqual([
-      { transform: "translateY(38px)" },
-      { transform: "translateY(0px)" },
-    ]);
-    expect(animate.mock.calls[1]?.[1]).toMatchObject({ duration: MOTION_BURST_DURATION_MS });
-    expect(firstRise.cancel).toHaveBeenCalledTimes(1);
-    expect(firstRise.cancel.mock.invocationCallOrder[0]).toBeGreaterThan(
-      animate.mock.invocationCallOrder[1]!,
-    );
+    // Retargeting adds to the still-decaying offset in place instead of
+    // cancelling and replaying a fresh animation -- since the loop is already
+    // running, it schedules no additional frame of its own.
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(callsBeforeRetarget);
+    const [, nextOffsetText] = /^translateY\(([-\d.]+)px\)$/.exec(timeline.style.transform) ?? [];
+    const nextOffset = Number(nextOffsetText);
+    expect(nextOffset).toBeCloseTo(midOffset + 20, 5);
   });
 
   it("keeps the retained viewport mounted while inactive and reconciles it once on return", async () => {

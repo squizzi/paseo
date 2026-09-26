@@ -1,4 +1,4 @@
-import { useCallback, useMemo, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { View, type StyleProp, type ViewStyle } from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
@@ -11,6 +11,15 @@ import { useIsCompactFormFactor } from "@/constants/layout";
 import { getShortcutOs } from "@/utils/shortcut-platform";
 import { useHasWindowChromeObstruction, useOwnsWindowChromeCorner } from "@/utils/desktop-window";
 import { iconButtonChromeGlyphSize } from "@/components/ui/icon-button-chrome";
+import { HEADER_CONTROL_HEIGHT } from "@/components/ui/control-geometry";
+import { isWeb } from "@/constants/platform";
+import {
+  MOTION_ARRIVE_CSS,
+  MOTION_ARRIVE_DURATION_MS,
+  MOTION_EXIT_CSS,
+  MOTION_EXIT_DURATION_MS,
+} from "@/styles/motion-tokens";
+import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 
 interface MenuHeaderProps {
   title?: string;
@@ -23,6 +32,8 @@ interface SidebarMenuToggleProps {
   tooltipSide?: "left" | "right" | "top" | "bottom";
   testID?: string;
   nativeID?: string;
+  disabled?: boolean;
+  accessible?: boolean;
 }
 
 const MOBILE_MENU_LINE_WIDTH = 16;
@@ -51,6 +62,8 @@ function SidebarMenuToggleButton({
   tooltipSide = "right",
   testID = "menu-button",
   nativeID = "menu-button",
+  disabled,
+  accessible,
 }: Omit<SidebarMenuToggleProps, "style"> & {
   isMobile: boolean;
   extraMutedIdleIcon?: boolean;
@@ -80,7 +93,8 @@ function SidebarMenuToggleButton({
       testID={testID}
       nativeID={nativeID}
       style={resolvedStyle}
-      accessible
+      disabled={disabled}
+      accessible={accessible ?? true}
       accessibilityRole="button"
       accessibilityLabel={isOpen ? t("shell.menu.close") : t("shell.menu.open")}
       accessibilityState={accessibilityState}
@@ -108,25 +122,65 @@ export function SidebarMenuToggle({ style, ...props }: SidebarMenuToggleProps = 
   const isMobile = useIsCompactFormFactor();
   const ownsTopLeft = useOwnsWindowChromeCorner("top-left");
   const hasTopLeftWindowControls = useHasWindowChromeObstruction("top-left");
+  const previousOwnsTopLeftRef = useRef<boolean | null>(null);
+
+  const transitionStyle = useMemo(() => {
+    const prev = previousOwnsTopLeftRef.current;
+    if (!isWeb || prev === null) {
+      return null;
+    }
+    // Growing (sidebar closing) -> matches sidebar exit timing
+    // Shrinking (sidebar opening) -> matches sidebar arrive timing
+    const duration = ownsTopLeft ? MOTION_EXIT_DURATION_MS : MOTION_ARRIVE_DURATION_MS;
+    const timing = ownsTopLeft ? MOTION_EXIT_CSS : MOTION_ARRIVE_CSS;
+    return `width ${duration}ms ${timing}, opacity ${duration}ms ${timing}`;
+  }, [ownsTopLeft]);
+
+  useLayoutEffect(() => {
+    previousOwnsTopLeftRef.current = ownsTopLeft;
+  }, [ownsTopLeft]);
+
   const resolvedStyle = useMemo(() => [styles.leadingToggle, style], [style]);
-  const placeholderStyle = useMemo(
-    () => [headerIconSlotStyle.slot, resolvedStyle],
-    [resolvedStyle],
+
+  const wrapperStyle = useMemo(() => {
+    const slotStyle = ownsTopLeft
+      ? { width: HEADER_CONTROL_HEIGHT, opacity: 1, overflow: "hidden" as const }
+      : { width: 0, opacity: 0, overflow: "hidden" as const };
+    return [
+      styles.leadingToggle,
+      slotStyle,
+      transitionStyle ? inlineUnistylesStyle({ transition: transitionStyle } as ViewStyle) : null,
+    ];
+  }, [ownsTopLeft, transitionStyle]);
+
+  if (isMobile) {
+    return <SidebarMenuToggleButton {...props} isMobile resolvedStyle={resolvedStyle} />;
+  }
+
+  const content = hasTopLeftWindowControls ? (
+    <View pointerEvents="none" style={headerIconSlotStyle.slot}>
+      <View style={styles.desktopMenuIconSpace} />
+    </View>
+  ) : (
+    <SidebarMenuToggleButton
+      {...props}
+      disabled={!ownsTopLeft}
+      accessible={ownsTopLeft}
+      isMobile={false}
+      resolvedStyle={style}
+    />
   );
 
-  if (!isMobile && !ownsTopLeft) {
-    return null;
-  }
-
-  if (!isMobile && hasTopLeftWindowControls) {
-    return (
-      <View pointerEvents="none" style={placeholderStyle}>
-        <View style={styles.desktopMenuIconSpace} />
-      </View>
-    );
-  }
-
-  return <SidebarMenuToggleButton {...props} isMobile={isMobile} resolvedStyle={resolvedStyle} />;
+  return (
+    <View
+      pointerEvents={ownsTopLeft ? undefined : "none"}
+      accessibilityElementsHidden={!ownsTopLeft}
+      importantForAccessibility={ownsTopLeft ? "auto" : "no-hide-descendants"}
+      style={wrapperStyle}
+    >
+      {content}
+    </View>
+  );
 }
 
 export function WindowSidebarMenuToggle({ style, ...props }: SidebarMenuToggleProps = {}) {

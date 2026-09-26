@@ -23,6 +23,16 @@ export const MOTION_STAGGER_MS = 40;
 export const MOTION_BURST_DURATION_MS = 80;
 /** About one content line. Bigger jumps are a lump, not a wrap. */
 export const MOTION_BURST_HEIGHT_PX = 28;
+/**
+ * Newly streamed word fade-in. Slower than the burst window on purpose: each
+ * word fades independently on its own opacity toggle, so a slower duration
+ * never blocks or lags behind arriving text the way an easing clip would.
+ */
+export const MOTION_STREAM_WORD_FADE_DURATION_MS = 320;
+
+/** Chat row arrival and matching CSS chrome. Softer and slower than arrive. */
+export const CHAT_ENTRY_DURATION_MS = 320;
+export const CHAT_ENTRY_CSS = "cubic-bezier(0.22, 1, 0.36, 1)";
 
 export const MOTION_ARRIVE_OFFSET_PX = 6;
 export const MOTION_MICRO_OFFSET_PX = 4;
@@ -84,12 +94,32 @@ export interface ArriveFadeStyle {
   transform: [{ translateY: number }];
 }
 
-/** Opacity plus a short rise. Chat rows and badge details share this land. */
+/** Opacity plus a short rise. Badge details land with this. */
 export function resolveArriveFadeStyle(progress: number, offsetPx: number): ArriveFadeStyle {
   "worklet";
   return {
     opacity: progress,
     transform: [{ translateY: offsetPx * (1 - progress) }],
+  };
+}
+
+/** Barely-perceptible scale-up alongside the rise, so it doesn't shrink the arrive offset. */
+export const CHAT_ENTRY_SCALE_FROM = 0.98;
+
+export interface ChatEntryFadeStyle {
+  opacity: number;
+  transform: [{ translateY: number }, { scale: number }];
+}
+
+/** Chat row arrival: fade, rise, and a faint scale-up for weight. */
+export function resolveChatEntryFadeStyle(progress: number, offsetPx: number): ChatEntryFadeStyle {
+  "worklet";
+  return {
+    opacity: progress,
+    transform: [
+      { translateY: offsetPx * (1 - progress) },
+      { scale: CHAT_ENTRY_SCALE_FROM + (1 - CHAT_ENTRY_SCALE_FROM) * progress },
+    ],
   };
 }
 

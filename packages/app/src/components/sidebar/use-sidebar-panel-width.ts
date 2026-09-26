@@ -20,6 +20,16 @@ export function useSidebarPanelWidth(input: {
   open: boolean;
   openWidth: number;
   onOccupiesLayoutChange?: (occupies: boolean) => void;
+  /**
+   * Settings replaces this panel with its own fixed-width sidebar that
+   * visually covers the same spot. Entering/leaving settings toggles `open`
+   * the same way a user click would, but there is nothing to animate --
+   * the settings sidebar already occupies that space the instant it mounts,
+   * so easing this panel open or closed underneath it is wasted motion on
+   * an element nobody can see. Snap instead, on whichever render crosses the
+   * boundary in either direction.
+   */
+  isSettingsRoute?: boolean;
 }) {
   const reducedMotion = useReducedMotion() === true;
   const width = useSharedValue(input.open ? input.openWidth : 0);
@@ -27,6 +37,10 @@ export function useSidebarPanelWidth(input: {
   const lockedInnerWidth = useSharedValue(input.openWidth);
   const hasPaintedRef = useRef(false);
   const openRef = useRef(input.open);
+  const wasSettingsRouteRef = useRef(input.isSettingsRoute ?? false);
+  // Keeps the dock mounted/reserved through the close animation (see
+  // split-container.tsx's explorer dock). Corner-ownership timing below does
+  // NOT use this -- it needs to flip at the start of a close, not the end.
   const [closing, setClosing] = useState(false);
 
   const markCloseSettled = useCallback(() => {
@@ -42,6 +56,14 @@ export function useSidebarPanelWidth(input: {
   }, [lockInner]);
 
   useLayoutEffect(() => {
+    const isSettingsRoute = input.isSettingsRoute ?? false;
+    // True on the render that crosses the boundary in either direction:
+    // entering settings sees the new `true`, leaving it still sees the old
+    // one via the ref, since `open` and `isSettingsRoute` flip together.
+    const crossingSettingsBoundary = isSettingsRoute || wasSettingsRouteRef.current;
+    wasSettingsRouteRef.current = isSettingsRoute;
+    const skipMotion = reducedMotion || crossingSettingsBoundary;
+
     const cause = resolveSidebarPanelWidthCause({
       hasPainted: hasPaintedRef.current,
       openChanged: input.open !== openRef.current,
@@ -52,7 +74,7 @@ export function useSidebarPanelWidth(input: {
 
     if (input.open) {
       setClosing(false);
-    } else if (wasOpen && cause === "toggle" && !reducedMotion) {
+    } else if (wasOpen && cause === "toggle" && !skipMotion) {
       setClosing(true);
     }
 
@@ -69,7 +91,7 @@ export function useSidebarPanelWidth(input: {
       open: input.open,
       openWidth: input.openWidth,
       currentWidth: width.value,
-      reducedMotion,
+      reducedMotion: skipMotion,
       cause,
     });
     if (decision.action === "ignore") {
@@ -98,6 +120,7 @@ export function useSidebarPanelWidth(input: {
       runOnJS(unlockInner)();
     });
   }, [
+    input.isSettingsRoute,
     input.open,
     input.openWidth,
     lockInner,
@@ -109,10 +132,16 @@ export function useSidebarPanelWidth(input: {
   ]);
 
   const occupiesLayout = sidebarPanelOccupiesLayout({ open: input.open, closing });
+
+  // Fires on `open` alone, not `occupiesLayout` (which stays true through the
+  // close animation for consumers like the explorer dock's own occupancy).
+  // The content pane's corner padding transition (see WindowChromeSafeArea)
+  // starts alongside the sidebar's own width close so both motions begin
+  // simultaneously.
   const onOccupiesLayoutChange = input.onOccupiesLayoutChange;
   useLayoutEffect(() => {
-    onOccupiesLayoutChange?.(occupiesLayout);
-  }, [occupiesLayout, onOccupiesLayoutChange]);
+    onOccupiesLayoutChange?.(input.open);
+  }, [input.open, onOccupiesLayoutChange]);
 
   const frameStyle = useAnimatedStyle(() => resolveSidebarPanelFrameStyle(width.value));
   const innerStyle = useAnimatedStyle(() => ({
@@ -126,6 +155,5 @@ export function useSidebarPanelWidth(input: {
     frameStyle,
     innerStyle,
     occupiesLayout,
-    closing,
   };
 }

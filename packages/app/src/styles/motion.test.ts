@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  CHAT_ENTRY_DURATION_MS,
+  CHAT_ENTRY_SCALE_FROM,
   MOTION_ARRIVE_DURATION_MS,
   MOTION_ARRIVE_OFFSET_PX,
   MOTION_BURST_DURATION_MS,
@@ -14,6 +16,7 @@ import {
   motionOverlayArriveFromAnchor,
   motionStaggerDelayMs,
   resolveArriveFadeStyle,
+  resolveChatEntryFadeStyle,
   resolveGrowthClipFrameStyle,
   resolveStreamBurstDuration,
 } from "./motion-tokens";
@@ -53,6 +56,7 @@ describe("motion durations", () => {
     expect(MOTION_OVERLAY_EXIT_DURATION_MS).toBeLessThan(MOTION_OVERLAY_ARRIVE_DURATION_MS);
     expect(MOTION_OVERLAY_ARRIVE_DURATION_MS).toBeLessThan(MOTION_ARRIVE_DURATION_MS);
     expect(MOTION_BURST_DURATION_MS).toBeLessThan(MOTION_ARRIVE_DURATION_MS);
+    expect(CHAT_ENTRY_DURATION_MS).toBeGreaterThan(MOTION_ARRIVE_DURATION_MS);
     expect(MOTION_CONTENT_DELAY_MS).toBe(MOTION_STAGGER_MS);
   });
 });
@@ -102,6 +106,19 @@ describe("arrive fade style", () => {
     expect(resolveArriveFadeStyle(1, MOTION_ARRIVE_OFFSET_PX)).toEqual({
       opacity: 1,
       transform: [{ translateY: 0 }],
+    });
+  });
+});
+
+describe("chat entry fade style", () => {
+  it("rises and scales up from a faint start to full rest", () => {
+    expect(resolveChatEntryFadeStyle(0, MOTION_ARRIVE_OFFSET_PX)).toEqual({
+      opacity: 0,
+      transform: [{ translateY: MOTION_ARRIVE_OFFSET_PX }, { scale: CHAT_ENTRY_SCALE_FROM }],
+    });
+    expect(resolveChatEntryFadeStyle(1, MOTION_ARRIVE_OFFSET_PX)).toEqual({
+      opacity: 1,
+      transform: [{ translateY: 0 }, { scale: 1 }],
     });
   });
 });

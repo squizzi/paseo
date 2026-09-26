@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { splitGrowingLabel } from "./growing-label-parts";
 
 describe("splitGrowingLabel", () => {
-  it("fades only the new summary suffix", () => {
+  it("grows in only the new summary suffix", () => {
     expect(
       splitGrowingLabel(
         "Ran 1 command, read 1 file",
@@ -11,6 +11,7 @@ describe("splitGrowingLabel", () => {
     ).toEqual({
       prefix: "Ran 1 command, read 1 file",
       incoming: " and searched 1 time",
+      outgoing: "",
     });
   });
 
@@ -18,6 +19,7 @@ describe("splitGrowingLabel", () => {
     expect(splitGrowingLabel("", "Ran 1 command")).toEqual({
       prefix: "Ran 1 command",
       incoming: "",
+      outgoing: "",
     });
   });
 
@@ -25,6 +27,15 @@ describe("splitGrowingLabel", () => {
     expect(splitGrowingLabel("Read 1 file", "Ran 1 command")).toEqual({
       prefix: "R",
       incoming: "an 1 command",
+      outgoing: "ead 1 file",
+    });
+  });
+
+  it("shrinks out a removed suffix", () => {
+    expect(splitGrowingLabel("Ran 1 command, read 1 file", "Ran 1 command")).toEqual({
+      prefix: "Ran 1 command",
+      incoming: "",
+      outgoing: ", read 1 file",
     });
   });
 });

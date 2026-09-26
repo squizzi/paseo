@@ -448,7 +448,7 @@ export function SplitContainer({
     openWidth: explorerSidebarWidth,
   });
   const showExplorerDock = Boolean(explorerSidebarPane) && explorerPanel.occupiesLayout;
-  const mainColumnWindowChromeCorners = showExplorerDock
+  const mainColumnWindowChromeCorners = explorerOpen
     ? removeWindowChromeCorner(inheritedWindowChromeCorners, "top-right")
     : inheritedWindowChromeCorners;
   const mainColumnStyle = styles.mainColumn;

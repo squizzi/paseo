@@ -1,4 +1,4 @@
-import { router } from "expo-router";
+import { router, usePathname } from "expo-router";
 import { FolderPlus, GitBranch, Import, Server, Settings, X } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
@@ -46,7 +46,7 @@ import { type SidebarGroupMode, useSidebarViewStore } from "@/stores/sidebar-vie
 import { shouldCommitSidebarItemMotionHydration } from "@/components/sidebar/item-motion";
 import { useHostRegistryLoaded, useHosts } from "@/runtime/host-runtime";
 import { usePanelStore } from "@/stores/panel-store";
-import { useOwnsWindowChromeCorner, WindowChromeSafeArea } from "@/utils/desktop-window";
+import { useHasWindowChromeObstruction, WindowChromeSafeArea } from "@/utils/desktop-window";
 import { useCloseAgentListGesture } from "@/mobile-panels/gestures";
 import { MobilePanelOverlay } from "@/mobile-panels/presentation";
 import { buildSettingsAddHostRoute, buildSettingsRoute } from "@/utils/host-routes";
@@ -665,11 +665,13 @@ function DesktopSidebar({
   active,
   onOccupiesLayoutChange,
 }: DesktopSidebarProps) {
-  const ownsTopLeft = useOwnsWindowChromeCorner("top-left");
+  const hasTopLeftWindowControls = useHasWindowChromeObstruction("top-left");
+  const showDesktopChromeRow = hasTopLeftWindowControls || Boolean(DEV_BUILD_LABEL);
   const hasActiveHostFilter = useSidebarViewStore((state) => state.hostFilters.length > 0);
   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
   const setSidebarWidth = usePanelStore((state) => state.setSidebarWidth);
   const { width: viewportWidth } = useWindowDimensions();
+  const pathname = usePathname();
   const visibleSidebarWidth = resolveDesktopSidebarWidth({
     requestedWidth: sidebarWidth,
     viewportWidth,
@@ -678,6 +680,7 @@ function DesktopSidebar({
     open: active,
     openWidth: visibleSidebarWidth,
     onOccupiesLayoutChange,
+    isSettingsRoute: pathname.includes("/settings"),
   });
 
   const startWidthRef = useRef(visibleSidebarWidth);
@@ -739,8 +742,8 @@ function DesktopSidebar({
     [insetsTop],
   );
   const sidebarHeaderGroupStyle = useMemo(
-    () => [styles.sidebarHeaderGroup, ownsTopLeft && styles.sidebarHeaderGroupBelowChrome],
-    [ownsTopLeft],
+    () => [styles.sidebarHeaderGroup, showDesktopChromeRow && styles.sidebarHeaderGroupBelowChrome],
+    [showDesktopChromeRow],
   );
   return (
     <Animated.View
@@ -752,7 +755,7 @@ function DesktopSidebar({
       <Animated.View style={desktopSidebarInnerStyle}>
         <View style={desktopSidebarBorderStyle}>
           <View style={styles.sidebarDragArea}>
-            {ownsTopLeft || DEV_BUILD_LABEL ? (
+            {showDesktopChromeRow ? (
               <View style={styles.desktopChromeRow}>
                 <TitlebarDragRegion />
                 {DEV_BUILD_LABEL ? (

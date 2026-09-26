@@ -14,21 +14,21 @@ import { isWeb } from "@/constants/platform";
 import { applyGrowthSize } from "@/components/collapse-clip-motion";
 import { useObservedSize } from "@/hooks/use-observed-size";
 import {
-  MOTION_ARRIVE_DURATION_MS,
-  MOTION_ARRIVE_EASING,
+  CHAT_ENTRY_DURATION_MS as MOTION_CHAT_ENTRY_DURATION_MS,
+  CHAT_ENTRY_EASING as MOTION_CHAT_ENTRY_EASING,
+  CHAT_ENTRY_TIMING,
   MOTION_ARRIVE_OFFSET_PX,
-  MOTION_ARRIVE_TIMING,
   MOTION_CLIP_AUTO,
-  resolveArriveFadeStyle,
+  resolveChatEntryFadeStyle,
   resolveGrowthClipFrameStyle,
   resolveStreamBurstDuration,
 } from "@/styles/motion";
 import type { StreamItem } from "@/types/stream";
 import type { StreamLayoutItem } from "./layout";
 
-export const CHAT_ENTRY_DURATION_MS = MOTION_ARRIVE_DURATION_MS;
-/** Shared arrive curve for row fade+rise. Growth clip uses arrive or burst. */
-export const CHAT_ENTRY_EASING = MOTION_ARRIVE_EASING;
+export const CHAT_ENTRY_DURATION_MS = MOTION_CHAT_ENTRY_DURATION_MS;
+/** Row fade+rise curve, softer and slower than chrome arrive. Growth clip uses arrive or burst. */
+export const CHAT_ENTRY_EASING = MOTION_CHAT_ENTRY_EASING;
 const CHAT_ENTRY_OFFSET_PX = MOTION_ARRIVE_OFFSET_PX;
 
 export function userMessageEntryKeys(
@@ -109,7 +109,7 @@ interface ChatEntryMotionProps {
 function playEntry(progress: SharedValue<number>, delayMs: number) {
   cancelAnimation(progress);
   progress.value = 0;
-  const timing = withTiming(1, MOTION_ARRIVE_TIMING);
+  const timing = withTiming(1, CHAT_ENTRY_TIMING);
   progress.value = delayMs > 0 ? withDelay(delayMs, timing) : timing;
 }
 
@@ -201,7 +201,7 @@ export function ChatEntryMotion({
     };
   }, [animateOnMount, progress, revision]);
 
-  const animatedStyle = useAnimatedStyle(() => resolveArriveFadeStyle(progress.value, offsetPx));
+  const animatedStyle = useAnimatedStyle(() => resolveChatEntryFadeStyle(progress.value, offsetPx));
 
   return (
     <Animated.View style={[style, animatedStyle]} testID={testID} dataSet={dataSet}>

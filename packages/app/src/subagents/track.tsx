@@ -20,6 +20,7 @@ import {
   buildSubagentRowPresentationData,
   countFinishedSubagents,
 } from "./track-presentation";
+import { SubagentRowExitMotion, useSubagentRowExitTracking } from "./track-exit-motion";
 
 const ThemedArchive = withUnistyles(Archive);
 const ThemedUnlink = withUnistyles(Unlink);
@@ -66,10 +67,17 @@ export function SubagentsTrack({
   onDetachSubagent,
 }: SubagentsTrackProps): ReactElement | null {
   const { t } = useTranslation();
+  const { displayRows, exitingIds, handleArchiveSubagent, handleArchiveFinished, handleRowExited } =
+    useSubagentRowExitTracking({ rows, onArchiveSubagent, onArchiveFinished });
 
   const isArchivingFinished = archiveFinishedStatus.kind === "archiving";
   const isArchiveFinishedFailed = archiveFinishedStatus.kind === "failed";
-  if (rows.length === 0 && !isArchivingFinished && !isArchiveFinishedFailed) {
+  if (
+    rows.length === 0 &&
+    exitingIds.size === 0 &&
+    !isArchivingFinished &&
+    !isArchiveFinishedFailed
+  ) {
     return null;
   }
 
@@ -89,18 +97,20 @@ export function SubagentsTrack({
           <ArchiveFinishedRow
             status={archiveFinishedStatus}
             disabled={isArchivingFinished}
-            onPress={onArchiveFinished}
+            onPress={handleArchiveFinished}
           />
         </ComposerTrackActions>
       ) : null}
-      {rows.map((row) => (
-        <SubagentsTrackRow
+      {displayRows.map((row) => (
+        <SubagentTrackRowSlot
           key={row.id}
           row={row}
           serverId={serverId}
+          exiting={exitingIds.has(row.id)}
+          onExited={handleRowExited}
           onOpenSubagent={onOpenSubagent}
           onOpenProviderSubagent={onOpenProviderSubagent}
-          onArchiveSubagent={onArchiveSubagent}
+          onArchiveSubagent={handleArchiveSubagent}
           onDetachSubagent={onDetachSubagent}
         />
       ))}
@@ -163,6 +173,32 @@ function ArchiveFinishedRow({
     >
       {renderRow}
     </ComposerTrackRow>
+  );
+}
+
+interface SubagentTrackRowSlotProps {
+  serverId: string;
+  row: SubagentRow;
+  exiting: boolean;
+  onExited: (id: string) => void;
+  onOpenSubagent: (id: string) => void;
+  onOpenProviderSubagent: (parentAgentId: string, subagentId: string) => void;
+  onArchiveSubagent: (id: string) => void;
+  onDetachSubagent?: (id: string) => void;
+}
+
+/** Binds a row's id into its own exit callback so the list map stays a stable prop, not a closure. */
+function SubagentTrackRowSlot({
+  row,
+  exiting,
+  onExited,
+  ...rowProps
+}: SubagentTrackRowSlotProps): ReactElement {
+  const handleExited = useCallback(() => onExited(row.id), [onExited, row.id]);
+  return (
+    <SubagentRowExitMotion exiting={exiting} onExited={handleExited}>
+      <SubagentsTrackRow row={row} {...rowProps} />
+    </SubagentRowExitMotion>
   );
 }
 
