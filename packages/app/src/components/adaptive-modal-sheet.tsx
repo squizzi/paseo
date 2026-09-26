@@ -21,6 +21,15 @@ import {
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { ArrowLeft, Search, X } from "lucide-react-native";
+import { FloatingSurface } from "@/components/ui/floating";
+import { tooltipOverlayMotion } from "@/components/ui/overlay-motion";
+import { useAnimationsEnabled } from "@/hooks/use-settings";
+import {
+  MOTION_ARRIVE_CSS,
+  MOTION_EXIT_CSS,
+  MOTION_OVERLAY_ARRIVE_DURATION_MS,
+  MOTION_OVERLAY_EXIT_DURATION_MS,
+} from "@/styles/motion";
 import {
   IsolatedBottomSheetModal,
   type ContextBridge,
@@ -229,7 +238,7 @@ const styles = StyleSheet.create((theme) => ({
   },
 }));
 
-const WEB_EXIT_DURATION_MS = 160;
+const WEB_EXIT_DURATION_MS = 120;
 
 function SheetBackground({ style }: BottomSheetBackgroundProps) {
   const { theme } = useUnistyles();
@@ -475,7 +484,45 @@ export interface AdaptiveModalSheetProps {
   contextBridge?: ContextBridge | null;
 }
 
-export function AdaptiveModalSheet({
+function resolveDesktopCardStyle(
+  desktopMaxWidth: DimensionValue | undefined,
+  desktopHeight: DimensionValue | undefined,
+  isWebClosing: boolean,
+): StyleProp<ViewStyle> {
+  const exitStyle: ViewStyle | false = isWeb &&
+    isWebClosing && {
+      opacity: 0,
+      transform: [{ translateY: 4 }],
+      transitionDuration: `${MOTION_OVERLAY_EXIT_DURATION_MS}ms`,
+      transitionProperty: "opacity, transform",
+      transitionTimingFunction: MOTION_EXIT_CSS,
+    };
+  return [
+    styles.desktopCard,
+    desktopHeight != null && { height: desktopHeight },
+    desktopMaxWidth != null && { maxWidth: desktopMaxWidth },
+    exitStyle,
+  ];
+}
+
+function resolveDesktopOverlayStyle(
+  isWebClosing: boolean,
+  modalLayer: number,
+): StyleProp<ViewStyle> {
+  if (!isWeb) return styles.desktopOverlay;
+  return [
+    styles.desktopOverlay,
+    {
+      zIndex: modalLayer,
+      opacity: isWebClosing ? 0 : 1,
+      transitionDuration: `${isWebClosing ? MOTION_OVERLAY_EXIT_DURATION_MS : MOTION_OVERLAY_ARRIVE_DURATION_MS}ms`,
+      transitionProperty: "opacity",
+      transitionTimingFunction: isWebClosing ? MOTION_EXIT_CSS : MOTION_ARRIVE_CSS,
+    },
+  ];
+}
+
+function CompactModalSheet({
   header,
   visible,
   onClose,
@@ -485,30 +532,26 @@ export function AdaptiveModalSheet({
   footerContainerStyle,
   snapPoints,
   testID,
-  desktopMaxWidth,
-  desktopHeight,
-  scrollable = true,
-  presentation,
-  contentStyle,
   bodyStyle,
+  contentStyle,
+  scrollable = true,
   sizeContentToCurrentSnapPoint = true,
   contextBridge = null,
+  presentation,
 }: AdaptiveModalSheetProps) {
   const { theme } = useUnistyles();
-  const { t } = useTranslation();
-  const isMobile = useIsCompactFormFactor();
   const insets = useSafeAreaInsets();
   const isKeyboardVisible = useKeyboardVisibility(visible);
   const resolvedSnapPoints = useMemo(() => snapPoints ?? ["65%", "90%"], [snapPoints]);
   const compactSafeAreaPadding = useMemo(
     () =>
       getCompactSheetSafeAreaPadding({
-        isCompact: isMobile,
+        isCompact: true,
         isKeyboardVisible,
         hasFooter: Boolean(footer),
         safeAreaBottom: insets.bottom,
       }),
-    [footer, insets.bottom, isKeyboardVisible, isMobile],
+    [footer, insets.bottom, isKeyboardVisible],
   );
   // Safe-area clearance is a separate layer: it must not replace the caller's
   // padding (including an explicit zero), and the footer owns it when present.
@@ -528,24 +571,13 @@ export function AdaptiveModalSheet({
   );
   const { sheetRef, handleSheetChange, handleSheetDismiss } = useIsolatedBottomSheetVisibility({
     visible,
-    isEnabled: isMobile,
+    isEnabled: true,
     onClose,
   });
-  const [shouldRenderWeb, setShouldRenderWeb] = useState(visible);
-  const [isWebClosing, setIsWebClosing] = useState(false);
-  const modalLayer = useGlobalWebOverlayLayer("modal", isWeb && !isMobile && shouldRenderWeb);
-  const nativeModalDismissNotifiedRef = useRef(!visible);
   const handleDismiss = useCallback(() => {
     handleSheetDismiss();
     onDismiss?.();
   }, [handleSheetDismiss, onDismiss]);
-  const notifyNativeModalDismiss = useCallback(() => {
-    if (nativeModalDismissNotifiedRef.current) {
-      return;
-    }
-    nativeModalDismissNotifiedRef.current = true;
-    onDismiss?.();
-  }, [onDismiss]);
 
   const renderBackdrop = useCallback(
     (props: React.ComponentProps<typeof BottomSheetBackdrop>) => (
@@ -554,25 +586,96 @@ export function AdaptiveModalSheet({
     [],
   );
 
+  const sheetContent = (
+    <>
+      <SheetHeaderView header={header} onClose={onClose} testID={testID} />
+      <View style={[styles.compactStaticContent, bodyStyle]}>
+        {scrollable ? (
+          <ScrollView
+            style={styles.bottomSheetVisibleScroll}
+            contentContainerStyle={SCROLL_CONTENT_GROW}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={[styles.contentGrow, bodyClearanceStyle]}>
+              <SheetContent style={[styles.contentGrow, contentStyle]}>{children}</SheetContent>
+            </View>
+          </ScrollView>
+        ) : (
+          <View style={[styles.compactStaticContent, bodyClearanceStyle]}>
+            <SheetContent style={[styles.compactStaticContent, contentStyle]}>
+              {children}
+            </SheetContent>
+          </View>
+        )}
+      </View>
+      {footerView}
+    </>
+  );
+
+  return (
+    <IsolatedBottomSheetModal
+      ref={sheetRef}
+      contextBridge={contextBridge}
+      snapPoints={resolvedSnapPoints}
+      index={0}
+      enableDynamicSizing={false}
+      onChange={handleSheetChange}
+      onDismiss={handleDismiss}
+      backdropComponent={renderBackdrop}
+      enablePanDownToClose
+      backgroundComponent={SheetBackground}
+      handleIndicatorStyle={handleIndicatorStyle}
+      keyboardBehavior="extend"
+      keyboardBlurBehavior="restore"
+      accessible={false}
+      presentation={presentation}
+    >
+      {sizeContentToCurrentSnapPoint ? (
+        <BottomSheetVisibleContent>{sheetContent}</BottomSheetVisibleContent>
+      ) : (
+        sheetContent
+      )}
+    </IsolatedBottomSheetModal>
+  );
+}
+
+function DesktopModalSheet({
+  header,
+  visible,
+  onClose,
+  onDismiss,
+  children,
+  footer,
+  footerContainerStyle,
+  testID,
+  desktopMaxWidth,
+  desktopHeight,
+  scrollable = true,
+  contentStyle,
+  bodyStyle,
+}: AdaptiveModalSheetProps) {
+  const { t } = useTranslation();
+  const animationsEnabled = useAnimationsEnabled();
+  const [shouldRenderWeb, setShouldRenderWeb] = useState(visible);
+  const [isWebClosing, setIsWebClosing] = useState(false);
+  const modalLayer = useGlobalWebOverlayLayer("modal", isWeb && shouldRenderWeb);
+  const nativeModalDismissNotifiedRef = useRef(!visible);
+
+  const notifyNativeModalDismiss = useCallback(() => {
+    if (nativeModalDismissNotifiedRef.current) {
+      return;
+    }
+    nativeModalDismissNotifiedRef.current = true;
+    onDismiss?.();
+  }, [onDismiss]);
+
   const desktopCardStyle = useMemo(
-    () => [
-      styles.desktopCard,
-      desktopHeight != null && { height: desktopHeight },
-      desktopMaxWidth != null && { maxWidth: desktopMaxWidth },
-    ],
-    [desktopMaxWidth, desktopHeight],
+    () => resolveDesktopCardStyle(desktopMaxWidth, desktopHeight, isWebClosing),
+    [desktopMaxWidth, desktopHeight, isWebClosing],
   );
   const desktopOverlayStyle = useMemo(
-    () => [
-      styles.desktopOverlay,
-      isWeb && {
-        zIndex: modalLayer,
-        opacity: isWebClosing ? 0 : 1,
-        transitionDuration: `${WEB_EXIT_DURATION_MS}ms`,
-        transitionProperty: "opacity",
-        transitionTimingFunction: "ease",
-      },
-    ],
+    () => resolveDesktopOverlayStyle(isWebClosing, modalLayer),
     [isWebClosing, modalLayer],
   );
 
@@ -587,7 +690,7 @@ export function AdaptiveModalSheet({
     [onClose],
   );
   const setWebOverlayScope = useWebOverlayRegistration({
-    active: isWeb && !isMobile && visible,
+    active: isWeb && visible,
     layer: modalLayer,
     onKeyDown: handleWebOverlayKeyDown,
   });
@@ -599,7 +702,7 @@ export function AdaptiveModalSheet({
   }, [visible]);
 
   useEffect(() => {
-    if (!isWeb || isMobile) return;
+    if (!isWeb) return;
     if (visible) {
       setShouldRenderWeb(true);
       setIsWebClosing(false);
@@ -613,68 +716,17 @@ export function AdaptiveModalSheet({
       onDismiss?.();
     }, WEB_EXIT_DURATION_MS);
     return () => window.clearTimeout(timeout);
-  }, [visible, isMobile, onDismiss, shouldRenderWeb]);
+  }, [visible, onDismiss, shouldRenderWeb]);
 
   useEffect(() => {
-    if (isWeb || isMobile || visible || Platform.OS !== "android") return;
+    if (isWeb || visible || Platform.OS !== "android") return;
     const timeout = setTimeout(notifyNativeModalDismiss, 0);
     return () => clearTimeout(timeout);
-  }, [visible, isMobile, notifyNativeModalDismiss]);
+  }, [visible, notifyNativeModalDismiss]);
 
-  if (isMobile) {
-    const sheetContent = (
-      <>
-        <SheetHeaderView header={header} onClose={onClose} testID={testID} />
-        <View style={[styles.compactStaticContent, bodyStyle]}>
-          {scrollable ? (
-            <ScrollView
-              style={styles.bottomSheetVisibleScroll}
-              contentContainerStyle={SCROLL_CONTENT_GROW}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-            >
-              <View style={[styles.contentGrow, bodyClearanceStyle]}>
-                <SheetContent style={[styles.contentGrow, contentStyle]}>{children}</SheetContent>
-              </View>
-            </ScrollView>
-          ) : (
-            <View style={[styles.compactStaticContent, bodyClearanceStyle]}>
-              <SheetContent style={[styles.compactStaticContent, contentStyle]}>
-                {children}
-              </SheetContent>
-            </View>
-          )}
-        </View>
-        {footerView}
-      </>
-    );
-
-    return (
-      <IsolatedBottomSheetModal
-        ref={sheetRef}
-        contextBridge={contextBridge}
-        snapPoints={resolvedSnapPoints}
-        index={0}
-        enableDynamicSizing={false}
-        onChange={handleSheetChange}
-        onDismiss={handleDismiss}
-        backdropComponent={renderBackdrop}
-        enablePanDownToClose
-        backgroundComponent={SheetBackground}
-        handleIndicatorStyle={handleIndicatorStyle}
-        keyboardBehavior="extend"
-        keyboardBlurBehavior="restore"
-        accessible={false}
-        presentation={presentation}
-      >
-        {sizeContentToCurrentSnapPoint ? (
-          <BottomSheetVisibleContent>{sheetContent}</BottomSheetVisibleContent>
-        ) : (
-          sheetContent
-        )}
-      </IsolatedBottomSheetModal>
-    );
-  }
+  const footerView = footer ? (
+    <View style={[styles.footer, footerContainerStyle]}>{footer}</View>
+  ) : null;
 
   const desktopStaticStyle =
     desktopHeight == null ? styles.desktopStaticContent : styles.compactStaticContent;
@@ -699,6 +751,9 @@ export function AdaptiveModalSheet({
     </OverlayLayerProvider>
   );
 
+  const modalEntering = animationsEnabled ? tooltipOverlayMotion.entering.top : undefined;
+  const modalExiting = !isWeb && animationsEnabled ? tooltipOverlayMotion.exiting.top : undefined;
+
   const desktopContent = (
     <View style={desktopOverlayStyle} testID={testID}>
       <Pressable
@@ -706,15 +761,17 @@ export function AdaptiveModalSheet({
         style={ABSOLUTE_FILL_STYLE}
         onPress={onClose}
       />
-      <View
+      <FloatingSurface
         ref={setWebOverlayScope}
+        entering={modalEntering}
+        exiting={modalExiting}
         style={desktopCardStyle}
         role="dialog"
         aria-modal
         tabIndex={-1}
       >
         {cardInner}
-      </View>
+      </FloatingSurface>
     </View>
   );
 
@@ -739,4 +796,12 @@ export function AdaptiveModalSheet({
       </GestureHandlerRootView>
     </Modal>
   );
+}
+
+export function AdaptiveModalSheet(props: AdaptiveModalSheetProps) {
+  const isMobile = useIsCompactFormFactor();
+  if (isMobile) {
+    return <CompactModalSheet {...props} />;
+  }
+  return <DesktopModalSheet {...props} />;
 }

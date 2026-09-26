@@ -31,6 +31,9 @@ import {
   IsolatedBottomSheetModal,
   useIsolatedBottomSheetVisibility,
 } from "@/components/ui/isolated-bottom-sheet-modal";
+import { FloatingSurface } from "@/components/ui/floating";
+import { tooltipOverlayMotion } from "@/components/ui/overlay-motion";
+import { useAnimationsEnabled } from "@/hooks/use-settings";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { isNative, isWeb } from "@/constants/platform";
 import { useAggregatedAgents, type AggregatedAgent } from "@/hooks/use-aggregated-agents";
@@ -713,6 +716,7 @@ export function CommandCenter() {
     },
     [state],
   );
+  const animationsEnabled = useAnimationsEnabled();
   const setWebOverlayScope = useWebOverlayRegistration({
     active: isWeb && state.open && !showBottomSheet,
     layer: modalLayer,
@@ -724,6 +728,9 @@ export function CommandCenter() {
     ),
     [],
   );
+
+  const modalEntering = animationsEnabled ? tooltipOverlayMotion.entering.top : undefined;
+  const modalExiting = !isWeb && animationsEnabled ? tooltipOverlayMotion.exiting.top : undefined;
 
   if (showBottomSheet) {
     return (
@@ -781,7 +788,13 @@ export function CommandCenter() {
       <Modal visible transparent animationType="fade" onRequestClose={state.close}>
         <View style={styles.overlay}>
           <Pressable style={styles.backdrop} onPress={state.close} />
-          <View ref={setWebOverlayScope} testID="command-center-panel" style={styles.panel}>
+          <FloatingSurface
+            ref={setWebOverlayScope}
+            testID="command-center-panel"
+            entering={modalEntering}
+            exiting={modalExiting}
+            style={styles.panel}
+          >
             <View style={[styles.header, styles.searchRow]} testID="command-center-header">
               {state.scope === "files" ? (
                 <ScopeChip label={t("shell.commandCenter.files")} onRemove={state.clearScope} />
@@ -808,7 +821,7 @@ export function CommandCenter() {
             </View>
             {fileSearchError}
             <FlatList ref={listRef} {...commonListProps} />
-          </View>
+          </FloatingSurface>
         </View>
       </Modal>
     </OverlayLayerProvider>
