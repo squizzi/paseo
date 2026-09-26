@@ -5,7 +5,13 @@ import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
 import Animated from "react-native-reanimated";
 import { SortableInlineList } from "@/components/sortable-inline-list";
+import {
+  WorkspaceTabMotionProvider,
+  WorkspaceTabMotionView,
+  useIsNewTab,
+} from "./workspace-tab-motion";
 import { EXPLORER_TAB_RAIL_INSET } from "@/components/explorer-sidebar-layout";
+import { useAnimationsEnabled } from "@/hooks/use-settings";
 import type {
   DraggableListDragHandleProps,
   DraggableRenderItemInfo,
@@ -252,6 +258,55 @@ function catalogItemMatchesTab(item: WorkspaceTabLaunchItem, tab: WorkspaceTabDe
   return item.toggleTarget !== null && workspaceTabTargetsEqual(item.toggleTarget, tab.target);
 }
 
+function ExplorerSidebarTabSlot({
+  item,
+  isActive,
+  dragHandleProps,
+  showBefore,
+  showAfter,
+  onNavigateTab,
+  onCloseTab,
+  onMoveTabToMain,
+  normalizedServerId,
+  normalizedWorkspaceId,
+}: {
+  item: WorkspaceDesktopTabRowItem;
+  isActive: boolean;
+  dragHandleProps: DraggableListDragHandleProps | undefined;
+  showBefore: boolean;
+  showAfter: boolean;
+  onNavigateTab: (tabId: string) => void;
+  onCloseTab: (tabId: string) => Promise<void> | void;
+  onMoveTabToMain: (tabId: string) => void;
+  normalizedServerId: string;
+  normalizedWorkspaceId: string;
+}) {
+  const isNew = useIsNewTab(item.tab.tabId);
+
+  return (
+    <WorkspaceTabMotionView
+      tabId={item.tab.tabId}
+      entering={isNew}
+      exiting={item.isClosingTab}
+      marginHorizontal={TAB_GAP / 2}
+      style={styles.tabSlot}
+    >
+      {showBefore ? <View style={[styles.dropIndicator, styles.dropIndicatorBefore]} /> : null}
+      <ExplorerSidebarTab
+        item={item}
+        isDragging={isActive}
+        dragHandleProps={dragHandleProps}
+        onNavigateTab={onNavigateTab}
+        onCloseTab={onCloseTab}
+        onMoveTabToMain={onMoveTabToMain}
+        normalizedServerId={normalizedServerId}
+        normalizedWorkspaceId={normalizedWorkspaceId}
+      />
+      {showAfter ? <View style={[styles.dropIndicator, styles.dropIndicatorAfter]} /> : null}
+    </WorkspaceTabMotionView>
+  );
+}
+
 export function ExplorerSidebarTabRail({
   paneId,
   tabs,
@@ -268,6 +323,7 @@ export function ExplorerSidebarTabRail({
 }: ExplorerSidebarTabRailProps) {
   const scrollBoundary = useHorizontalScrollBoundary();
   const { t } = useTranslation();
+  const animationsEnabled = useAnimationsEnabled();
   const groups = useWorkspaceTabLaunchCatalog({
     serverId: normalizedServerId,
     purpose: "supporting",
@@ -290,6 +346,14 @@ export function ExplorerSidebarTabRail({
     }),
     [paneId],
   );
+  const isSameRailDrag = useMemo(
+    () =>
+      animationsEnabled &&
+      activeDragTabId !== null &&
+      tabs.some((tabItem) => tabItem.tab.tabId === activeDragTabId),
+    [activeDragTabId, animationsEnabled, tabs],
+  );
+
   const renderTab = useCallback(
     ({
       item,
@@ -297,30 +361,31 @@ export function ExplorerSidebarTabRail({
       dragHandleProps,
       isActive,
     }: DraggableRenderItemInfo<WorkspaceDesktopTabRowItem>) => {
-      const showBefore = activeDragTabId !== null && tabDropPreviewIndex === index;
+      const showBefore =
+        !isSameRailDrag && activeDragTabId !== null && tabDropPreviewIndex === index;
       const showAfter =
+        !isSameRailDrag &&
         activeDragTabId !== null &&
         tabDropPreviewIndex === tabs.length &&
         index === tabs.length - 1;
       return (
-        <View style={styles.tabSlot}>
-          {showBefore ? <View style={[styles.dropIndicator, styles.dropIndicatorBefore]} /> : null}
-          <ExplorerSidebarTab
-            item={item}
-            isDragging={isActive}
-            dragHandleProps={dragHandleProps}
-            onNavigateTab={onNavigateTab}
-            onCloseTab={onCloseTab}
-            onMoveTabToMain={onMoveTabToMain}
-            normalizedServerId={normalizedServerId}
-            normalizedWorkspaceId={normalizedWorkspaceId}
-          />
-          {showAfter ? <View style={[styles.dropIndicator, styles.dropIndicatorAfter]} /> : null}
-        </View>
+        <ExplorerSidebarTabSlot
+          item={item}
+          isActive={isActive}
+          dragHandleProps={dragHandleProps}
+          showBefore={showBefore}
+          showAfter={showAfter}
+          onNavigateTab={onNavigateTab}
+          onCloseTab={onCloseTab}
+          onMoveTabToMain={onMoveTabToMain}
+          normalizedServerId={normalizedServerId}
+          normalizedWorkspaceId={normalizedWorkspaceId}
+        />
       );
     },
     [
       activeDragTabId,
+      isSameRailDrag,
       normalizedServerId,
       normalizedWorkspaceId,
       onNavigateTab,
@@ -330,6 +395,8 @@ export function ExplorerSidebarTabRail({
       tabs.length,
     ],
   );
+
+  const tabIds = useMemo(() => tabs.map((item) => item.tab.tabId), [tabs]);
 
   return (
     <ContextMenu>
@@ -348,16 +415,18 @@ export function ExplorerSidebarTabRail({
             onScroll={scrollBoundary.onScroll}
             scrollEventThrottle={16}
           >
-            <SortableInlineList
-              data={tabs}
-              keyExtractor={tabKey}
-              renderItem={renderTab}
-              onDragEnd={handleDragEnd}
-              useDragHandle
-              externalDndContext
-              activeId={activeDragTabId}
-              getItemData={getTabDragData}
-            />
+            <WorkspaceTabMotionProvider tabIds={tabIds}>
+              <SortableInlineList
+                data={tabs}
+                keyExtractor={tabKey}
+                renderItem={renderTab}
+                onDragEnd={handleDragEnd}
+                useDragHandle
+                externalDndContext
+                activeId={activeDragTabId}
+                getItemData={getTabDragData}
+              />
+            </WorkspaceTabMotionProvider>
           </Animated.ScrollView>
           <HorizontalScrollBoundaryShades
             visible
@@ -413,7 +482,6 @@ const styles = StyleSheet.create((theme) => ({
   },
   tabSlot: {
     position: "relative",
-    marginHorizontal: TAB_GAP / 2,
   },
   tab: {
     height: HEADER_CONTROL_HEIGHT,

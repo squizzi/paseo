@@ -28,6 +28,7 @@ import {
   MOTION_EXIT_DURATION_MS,
 } from "@/styles/motion-tokens";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
+import { useAnimationsEnabled } from "@/hooks/use-settings";
 
 export type WindowChromeCorners = "none" | "top-left" | "top-right" | "both";
 type WindowChromeSafeAreaPlacement = "inline" | "below";
@@ -322,6 +323,7 @@ export function WindowChromeSafeArea({
 }: WindowChromeSafeAreaProps) {
   const obstruction = useContext(WindowChromeContext);
   const corners = useContext(WindowChromeCornersContext);
+  const animationsEnabled = useAnimationsEnabled();
   const previousResolvedRef = useRef<{ paddingLeft: number; paddingRight: number } | null>(null);
 
   const safeAreaStyle = useMemo(() => {
@@ -351,7 +353,7 @@ export function WindowChromeSafeArea({
       timingRight = MOTION_ARRIVE_CSS;
     }
 
-    const hasTransition = isWeb && prev !== null;
+    const hasTransition = isWeb && prev !== null && animationsEnabled;
 
     return {
       paddingLeft: paddingLeft + horizontalPadding,
@@ -362,7 +364,7 @@ export function WindowChromeSafeArea({
           })
         : null),
     };
-  }, [corners, horizontalPadding, obstruction, placement]);
+  }, [animationsEnabled, corners, horizontalPadding, obstruction, placement]);
 
   useLayoutEffect(() => {
     const resolved = resolveWindowChromeSafeArea({ obstruction, corners, placement });

@@ -14,9 +14,10 @@ import {
   horizontalListSortingStrategy,
   useSortable,
 } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 import type { DraggableRenderItemInfo } from "./draggable-list.types";
 import { useDragReorderState } from "./drag-reorder";
+import { resolveSortableInlineItemStyle } from "./sortable-inline-item-style";
+import { useAnimationsEnabled } from "@/hooks/use-settings";
 
 const restrictToHorizontalAxis: Modifier = ({ transform }) => ({
   ...transform,
@@ -24,11 +25,6 @@ const restrictToHorizontalAxis: Modifier = ({ transform }) => ({
 });
 
 const DND_MODIFIERS: Modifier[] = [restrictToHorizontalAxis];
-
-function computeDragOpacity(hasExternalContext: boolean, isDragging: boolean): number {
-  if (!isDragging) return 1;
-  return hasExternalContext ? 0.3 : 0.9;
-}
 
 function SortableItem<T>({
   id,
@@ -40,6 +36,7 @@ function SortableItem<T>({
   disabled,
   itemData,
   externalDndContext,
+  animateReorder,
 }: {
   id: string;
   item: T;
@@ -50,6 +47,7 @@ function SortableItem<T>({
   disabled: boolean;
   itemData?: Record<string, unknown>;
   externalDndContext: boolean;
+  animateReorder: boolean;
 }): ReactElement {
   const {
     attributes,
@@ -66,24 +64,17 @@ function SortableItem<T>({
     // This is a no-op but matches the mobile API
   }, []);
 
-  // External DnD contexts render their own insertion affordance, so keep the
-  // tab row static and let the DragOverlay carry the moving chip.
-  const baseTransform = externalDndContext
-    ? undefined
-    : CSS.Transform.toString(
-        transform && isDragging ? { ...transform, scaleX: 1, scaleY: 1 } : transform,
-      );
-  const scaleTransform = !externalDndContext && isDragging ? "scale(1.01)" : "";
-  const combinedTransform = [baseTransform, scaleTransform].filter(Boolean).join(" ");
-
   const style = useMemo(
-    () => ({
-      transform: combinedTransform || undefined,
-      transition,
-      opacity: computeDragOpacity(Boolean(externalDndContext), isDragging),
-      zIndex: isDragging ? 1000 : 1,
-    }),
-    [combinedTransform, transition, externalDndContext, isDragging],
+    () =>
+      resolveSortableInlineItemStyle({
+        animateReorder,
+        externalDndContext,
+        isDragging,
+        isActiveId: activeId === id,
+        transform,
+        transition,
+      }),
+    [activeId, animateReorder, externalDndContext, id, isDragging, transform, transition],
   );
 
   const info: DraggableRenderItemInfo<T> = {
@@ -136,6 +127,7 @@ export function SortableInlineList<T>({
   activeId?: string | null;
   getItemData?: (item: T, index: number) => Record<string, unknown>;
 }): ReactElement {
+  const animateReorder = useAnimationsEnabled();
   const {
     activeId: internalActiveId,
     items: managedItems,
@@ -182,6 +174,7 @@ export function SortableInlineList<T>({
             disabled={disabled}
             itemData={getItemData?.(item, index)}
             externalDndContext={externalDndContext}
+            animateReorder={animateReorder}
           />
         );
       })}

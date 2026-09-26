@@ -1,4 +1,4 @@
-import React, { useCallback, useLayoutEffect, useRef, type ReactNode } from "react";
+import React, { useCallback, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import type { LayoutChangeEvent, StyleProp, ViewStyle } from "react-native";
 import { View } from "react-native";
 import Animated, {
@@ -13,6 +13,7 @@ import Animated, {
 import { isWeb } from "@/constants/platform";
 import { applyGrowthSize } from "@/components/collapse-clip-motion";
 import { useObservedSize } from "@/hooks/use-observed-size";
+import { useAnimationsEnabled } from "@/hooks/use-settings";
 import {
   CHAT_ENTRY_DURATION_MS as MOTION_CHAT_ENTRY_DURATION_MS,
   CHAT_ENTRY_EASING as MOTION_CHAT_ENTRY_EASING,
@@ -22,6 +23,7 @@ import {
   resolveChatEntryFadeStyle,
   resolveGrowthClipFrameStyle,
   resolveStreamBurstDuration,
+  type ChatMotionOrigin,
 } from "@/styles/motion";
 import type { StreamItem } from "@/types/stream";
 import type { StreamLayoutItem } from "./layout";
@@ -95,6 +97,7 @@ interface ChatEntryMotionProps {
   revision?: string | number;
   delayMs?: number;
   offsetPx?: number;
+  origin?: ChatMotionOrigin;
   /**
    * Snap to rest and suppress entry motion. Set once a newer sibling supersedes
    * this one during a burst, so only the most recent arrival animates and the
@@ -120,29 +123,32 @@ export function ChatEntryMotion({
   revision,
   delayMs = 0,
   offsetPx = CHAT_ENTRY_OFFSET_PX,
+  origin = "bottom-left",
   settle = false,
   style,
   testID,
   dataSet,
 }: ChatEntryMotionProps) {
+  const animationsEnabled = useAnimationsEnabled();
+  const playMotion = animateOnMount && animationsEnabled;
   const hasMounted = useRef(false);
   const hasPlayedEntry = useRef(false);
   const previousRevision = useRef(revision);
   const settleRef = useRef(settle);
   settleRef.current = settle;
-  const animateOnMountRef = useRef(animateOnMount);
-  animateOnMountRef.current = animateOnMount;
+  const animateOnMountRef = useRef(playMotion);
+  animateOnMountRef.current = playMotion;
   const delayMsRef = useRef(delayMs);
   delayMsRef.current = delayMs;
-  const progress = useSharedValue(animateOnMount && !settle ? 0 : 1);
+  const progress = useSharedValue(playMotion && !settle ? 0 : 1);
 
   // A row superseded before or during its entry snaps to rest.
   useLayoutEffect(() => {
-    if (settle) {
+    if (settle || !animationsEnabled) {
       cancelAnimation(progress);
       progress.value = 1;
     }
-  }, [progress, settle]);
+  }, [animationsEnabled, progress, settle]);
 
   useLayoutEffect(() => {
     let cancelled = false;
@@ -157,7 +163,7 @@ export function ChatEntryMotion({
     const isMount = !hasMounted.current;
     hasMounted.current = true;
     if (isMount) {
-      if (!animateOnMount) {
+      if (!playMotion) {
         return;
       }
       // Play on mount. Waiting for IntersectionObserver left sent rows at
@@ -168,7 +174,7 @@ export function ChatEntryMotion({
       };
     }
 
-    if (!animateOnMount) {
+    if (!playMotion) {
       if (!hasPlayedEntry.current) {
         cancelAnimation(progress);
         progress.value = 1;
@@ -199,12 +205,18 @@ export function ChatEntryMotion({
     return () => {
       cancelled = true;
     };
-  }, [animateOnMount, progress, revision]);
+  }, [playMotion, progress, revision]);
 
-  const animatedStyle = useAnimatedStyle(() => resolveChatEntryFadeStyle(progress.value, offsetPx));
+  const animatedStyle = useAnimatedStyle(() =>
+    resolveChatEntryFadeStyle(progress.value, offsetPx, origin),
+  );
+  const originStyle = useMemo(
+    () => ({ transformOrigin: origin === "top-right" ? "100% 0%" : "0% 100%" }),
+    [origin],
+  );
 
   return (
-    <Animated.View style={[style, animatedStyle]} testID={testID} dataSet={dataSet}>
+    <Animated.View style={[style, originStyle, animatedStyle]} testID={testID} dataSet={dataSet}>
       {children}
     </Animated.View>
   );
@@ -234,6 +246,8 @@ export function ChatGrowthClip({
   style,
   testID,
 }: ChatGrowthClipProps) {
+  const animationsEnabled = useAnimationsEnabled();
+  const clipEnabled = enabled && animationsEnabled;
   const contentHeightRef = useRef<number | null>(null);
   const height = useSharedValue(MOTION_CLIP_AUTO);
 
@@ -248,7 +262,7 @@ export function ChatGrowthClip({
   );
 
   const { setNodeRef, onLayout: onObservedLayout } = useObservedSize({
-    enabled,
+    enabled: clipEnabled,
     axis: "height",
     onSize: applyMeasuredHeight,
   });
@@ -263,7 +277,7 @@ export function ChatGrowthClip({
 
   const clipStyle = useAnimatedStyle(() => resolveGrowthClipFrameStyle(height.value, "height"));
 
-  if (!enabled) {
+  if (!clipEnabled) {
     return (
       <View onLayout={onLayout} style={style}>
         {children}

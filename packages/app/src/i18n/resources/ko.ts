@@ -2173,6 +2173,11 @@ export const ko: TranslationResources = {
       detailLevel: {
         title: "세부 수준",
       },
+      animations: {
+        title: "애니메이션",
+        description:
+          "항목이 나타나거나 스트리밍되거나 재정렬될 때 페이드, 슬라이드, 이징을 재생합니다",
+      },
       chatOutline: {
         title: "채팅 개요",
         description: "프롬프트 사이를 이동하기 위한 개요 표시",

@@ -10,6 +10,12 @@ vi.mock("@/constants/platform", () => ({
   isNative: false,
 }));
 
+const animationsEnabled = { current: true };
+
+vi.mock("@/hooks/use-settings", () => ({
+  useAnimationsEnabled: () => animationsEnabled.current,
+}));
+
 vi.mock("react-native-reanimated", async () => {
   const ReactModule = await vi.importActual<typeof import("react")>("react");
 
@@ -116,6 +122,7 @@ describe("ChatEntryMotion", () => {
     root = null;
     container?.remove();
     container = null;
+    animationsEnabled.current = true;
     vi.unstubAllGlobals();
   });
 
@@ -148,6 +155,14 @@ describe("ChatEntryMotion", () => {
   it("stays at rest when the row should not animate", () => {
     vi.mocked(withTiming).mockClear();
     renderEntry(false);
+    expect(entryOpacity()).toBe(1);
+  });
+
+  it("stays at rest when appearance animations are disabled", () => {
+    animationsEnabled.current = false;
+    vi.mocked(withTiming).mockClear();
+    renderEntry(true);
+    expect(vi.mocked(withTiming)).not.toHaveBeenCalled();
     expect(entryOpacity()).toBe(1);
   });
 });

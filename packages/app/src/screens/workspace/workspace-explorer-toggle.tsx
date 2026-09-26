@@ -17,6 +17,7 @@ import {
   MOTION_EXIT_DURATION_MS,
 } from "@/styles/motion-tokens";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
+import { useAnimationsEnabled } from "@/hooks/use-settings";
 import type { ShortcutKey } from "@/utils/format-shortcut";
 
 const ThemedPanelRight = withUnistyles(PanelRight);
@@ -89,11 +90,12 @@ export function WorkspaceHeaderExplorerToggle({
   ...toggleProps
 }: DesktopWorkspaceExplorerToggleProps) {
   const visible = owner !== "mobile" && (owner !== "window" || !accessibilityState.expanded);
+  const animationsEnabled = useAnimationsEnabled();
   const previousVisibleRef = useRef<boolean | null>(null);
 
   const transitionStyle = useMemo(() => {
     const prev = previousVisibleRef.current;
-    if (!isWeb || prev === null) {
+    if (!isWeb || prev === null || !animationsEnabled) {
       return null;
     }
     // Growing (panel closing) -> matches panel exit timing
@@ -101,7 +103,7 @@ export function WorkspaceHeaderExplorerToggle({
     const duration = visible ? MOTION_EXIT_DURATION_MS : MOTION_ARRIVE_DURATION_MS;
     const timing = visible ? MOTION_EXIT_CSS : MOTION_ARRIVE_CSS;
     return `width ${duration}ms ${timing}, opacity ${duration}ms ${timing}`;
-  }, [visible]);
+  }, [animationsEnabled, visible]);
 
   useLayoutEffect(() => {
     previousVisibleRef.current = visible;

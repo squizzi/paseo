@@ -38,6 +38,7 @@ export {
   resolveStreamBurstDuration,
   type ArriveFadeStyle,
   type ChatEntryFadeStyle,
+  type ChatMotionOrigin,
   type GrowthClipAxis,
   type GrowthClipFrameStyle,
   type MotionOverlaySide,

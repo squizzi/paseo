@@ -131,6 +131,7 @@ import type { ShortcutKey } from "@/utils/format-shortcut";
 import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
 import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
 import { useWorkspaceReadState } from "@/hooks/use-workspace-read-state";
+import { useAnimationsEnabled } from "@/hooks/use-settings";
 import type { PrHint } from "@/git/use-pr-status-query";
 import {
   buildSidebarProjectRowModel,
@@ -411,7 +412,12 @@ function SidebarItemMotionView({
   role?: Role;
   accessibilityLabel?: string;
 }>) {
-  const motion = useSidebarItemMotion({ entering, exiting, easeContentResize });
+  const animationsEnabled = useAnimationsEnabled();
+  const motion = useSidebarItemMotion({
+    entering: entering && animationsEnabled,
+    exiting: exiting && animationsEnabled,
+    easeContentResize,
+  });
   return (
     <Animated.View
       role={role}
@@ -1522,6 +1528,8 @@ function WorkspaceRowWithMenu({
   const [isRenameOpen, setIsRenameOpen] = useState(false);
   const isArchiving = workspace.archivingAt !== null || isHidingWorkspace;
   const reducedMotion = useReducedMotion();
+  const animationsEnabled = useAnimationsEnabled();
+  const skipItemMotion = reducedMotion === true || !animationsEnabled;
   const isNew = useIsNewSidebarItem(sidebarWorkspaceMotionKey(workspace.workspaceKey));
   const redirectAfterArchive = useCallback(() => {
     redirectIfArchivingActiveWorkspace({
@@ -1531,8 +1539,8 @@ function WorkspaceRowWithMenu({
     });
   }, [selected, workspace]);
   const animateBeforeArchive = useCallback(
-    () => waitForSidebarItemMotion(reducedMotion),
-    [reducedMotion],
+    () => waitForSidebarItemMotion(skipItemMotion),
+    [skipItemMotion],
   );
 
   const archiveController = useWorkspaceArchive({
@@ -1974,6 +1982,8 @@ function ProjectBlock({
   const { t } = useTranslation();
   const [isRemovingProject, setIsRemovingProject] = useState(false);
   const reducedMotion = useReducedMotion();
+  const animationsEnabled = useAnimationsEnabled();
+  const skipItemMotion = reducedMotion === true || !animationsEnabled;
   const isNew = useIsNewSidebarItem(sidebarProjectMotionKey(project.viewKey));
 
   const handleRemoveProject = useCallback(() => {
@@ -1994,7 +2004,7 @@ function ProjectBlock({
       }
 
       setIsRemovingProject(true);
-      await waitForSidebarItemMotion(reducedMotion);
+      await waitForSidebarItemMotion(skipItemMotion);
       const readiness = getCurrentProjectRemoveReadiness({
         hosts: project.hosts,
       });
@@ -2027,7 +2037,7 @@ function ProjectBlock({
           setIsRemovingProject(false);
         });
     })();
-  }, [isRemovingProject, displayName, t, toast, project.hosts, reducedMotion]);
+  }, [isRemovingProject, displayName, t, toast, project.hosts, skipItemMotion]);
 
   const handleToggleCollapsed = useCallback(() => {
     onToggleCollapsed(project.viewKey);

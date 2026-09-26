@@ -260,6 +260,23 @@ function ChatOutlineRow({ value, onChange }: ChatOutlineRowProps) {
   );
 }
 
+interface AnimationsRowProps {
+  value: boolean;
+  onChange: (value: boolean) => void;
+}
+
+function AnimationsRow({ value, onChange }: AnimationsRowProps) {
+  const { t } = useTranslation();
+  return (
+    <SettingsSwitch
+      label={t("settings.appearance.animations.title")}
+      hint={t("settings.appearance.animations.description")}
+      value={value}
+      onValueChange={onChange}
+    />
+  );
+}
+
 const TOOL_CALL_DETAIL_LEVELS: readonly AppSettings["toolCallDetailLevel"][] = [
   "detailed",
   "overview",
@@ -577,6 +594,13 @@ export function AppearanceSection() {
     [updateSettings],
   );
 
+  const handleAnimationsChange = useCallback(
+    (animationsEnabled: boolean) => {
+      void updateSettings({ animationsEnabled });
+    },
+    [updateSettings],
+  );
+
   const commitUiFontFamily = useCallback(
     (value: string) => {
       const sanitized = sanitizeFontFamily(value);
@@ -690,6 +714,7 @@ export function AppearanceSection() {
             value={settings.toolCallDetailLevel}
             onChange={handleToolCallDetailLevelChange}
           />
+          <AnimationsRow value={settings.animationsEnabled} onChange={handleAnimationsChange} />
           {!isNative ? (
             <ChatOutlineRow
               value={settings.chatOutlineEnabled}

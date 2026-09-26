@@ -114,10 +114,25 @@ describe("chat entry fade style", () => {
   it("rises and scales up from a faint start to full rest", () => {
     expect(resolveChatEntryFadeStyle(0, MOTION_ARRIVE_OFFSET_PX)).toEqual({
       opacity: 0,
+      transformOrigin: ["0%", "100%", 0],
       transform: [{ translateY: MOTION_ARRIVE_OFFSET_PX }, { scale: CHAT_ENTRY_SCALE_FROM }],
     });
     expect(resolveChatEntryFadeStyle(1, MOTION_ARRIVE_OFFSET_PX)).toEqual({
       opacity: 1,
+      transformOrigin: ["0%", "100%", 0],
+      transform: [{ translateY: 0 }, { scale: 1 }],
+    });
+  });
+
+  it("emanates from the top right corner when origin is top-right", () => {
+    expect(resolveChatEntryFadeStyle(0, MOTION_ARRIVE_OFFSET_PX, "top-right")).toEqual({
+      opacity: 0,
+      transformOrigin: ["100%", "0%", 0],
+      transform: [{ translateY: MOTION_ARRIVE_OFFSET_PX }, { scale: CHAT_ENTRY_SCALE_FROM }],
+    });
+    expect(resolveChatEntryFadeStyle(1, MOTION_ARRIVE_OFFSET_PX, "top-right")).toEqual({
+      opacity: 1,
+      transformOrigin: ["100%", "0%", 0],
       transform: [{ translateY: 0 }, { scale: 1 }],
     });
   });

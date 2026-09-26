@@ -27,6 +27,8 @@ import { DiffViewer } from "./diff-viewer";
 import { getCodeInsets } from "./code-insets";
 import { isWeb } from "@/constants/platform";
 import { ChatGrowthClip } from "@/agent-stream/chat-entry-motion";
+import { StreamWordFade } from "@/agent-stream/stream-word-fade";
+import { useAnimationsEnabled } from "@/hooks/use-settings";
 
 const ScrollView = isWeb ? RNScrollView : GHScrollView;
 
@@ -506,6 +508,7 @@ function ScrollablePlainTextSection({
   ds: DetailStyles;
   followOutput: boolean;
 }) {
+  const animationsEnabled = useAnimationsEnabled();
   const { scrollRef, onContentSizeChange, onScroll } = useFollowOutputScroll(followOutput);
   return (
     <View style={styles.section}>
@@ -525,7 +528,11 @@ function ScrollablePlainTextSection({
           testID={followOutput ? "tool-call-detail-growth-clip" : undefined}
         >
           <Text selectable style={styles.plainText}>
-            {text}
+            <StreamWordFade
+              text={text}
+              enabled={followOutput && animationsEnabled}
+              origin="bottom-left"
+            />
           </Text>
         </ChatGrowthClip>
       </ScrollView>

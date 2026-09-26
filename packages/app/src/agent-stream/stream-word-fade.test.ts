@@ -23,4 +23,18 @@ describe("splitStreamWordTokens", () => {
   it("returns no tokens for empty text", () => {
     expect(splitStreamWordTokens("")).toEqual([]);
   });
+
+  it("handles multiline and formatted text tokens across whitespace runs", () => {
+    expect(splitStreamWordTokens("Line 1\n\nLine 2 `code`")).toEqual([
+      "Line",
+      " ",
+      "1",
+      "\n\n",
+      "Line",
+      " ",
+      "2",
+      " ",
+      "`code`",
+    ]);
+  });
 });

@@ -20,6 +20,7 @@ import {
   MOTION_EXIT_DURATION_MS,
 } from "@/styles/motion-tokens";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
+import { useAnimationsEnabled } from "@/hooks/use-settings";
 
 interface MenuHeaderProps {
   title?: string;
@@ -122,11 +123,12 @@ export function SidebarMenuToggle({ style, ...props }: SidebarMenuToggleProps = 
   const isMobile = useIsCompactFormFactor();
   const ownsTopLeft = useOwnsWindowChromeCorner("top-left");
   const hasTopLeftWindowControls = useHasWindowChromeObstruction("top-left");
+  const animationsEnabled = useAnimationsEnabled();
   const previousOwnsTopLeftRef = useRef<boolean | null>(null);
 
   const transitionStyle = useMemo(() => {
     const prev = previousOwnsTopLeftRef.current;
-    if (!isWeb || prev === null) {
+    if (!isWeb || prev === null || !animationsEnabled) {
       return null;
     }
     // Growing (sidebar closing) -> matches sidebar exit timing
@@ -134,7 +136,7 @@ export function SidebarMenuToggle({ style, ...props }: SidebarMenuToggleProps = 
     const duration = ownsTopLeft ? MOTION_EXIT_DURATION_MS : MOTION_ARRIVE_DURATION_MS;
     const timing = ownsTopLeft ? MOTION_EXIT_CSS : MOTION_ARRIVE_CSS;
     return `width ${duration}ms ${timing}, opacity ${duration}ms ${timing}`;
-  }, [ownsTopLeft]);
+  }, [animationsEnabled, ownsTopLeft]);
 
   useLayoutEffect(() => {
     previousOwnsTopLeftRef.current = ownsTopLeft;

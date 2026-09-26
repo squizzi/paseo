@@ -1,7 +1,29 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { Text, type LayoutChangeEvent, type StyleProp, type TextStyle } from "react-native";
+import {
+  Text,
+  View,
+  type LayoutChangeEvent,
+  type StyleProp,
+  type TextStyle,
+  type ViewStyle,
+} from "react-native";
+import Animated, {
+  cancelAnimation,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
+import { StyleSheet } from "react-native-unistyles";
 import { isWeb } from "@/constants/platform";
-import { MOTION_ARRIVE_CSS, MOTION_STREAM_WORD_FADE_DURATION_MS } from "@/styles/motion-tokens";
+import { useObservedSize } from "@/hooks/use-observed-size";
+import { useAnimationsEnabled } from "@/hooks/use-settings";
+import {
+  MOTION_ARRIVE_CSS,
+  MOTION_ARRIVE_TIMING,
+  MOTION_CLIP_AUTO,
+  resolveGrowthClipFrameStyle,
+} from "@/styles/motion";
+import { MOTION_STREAM_WORD_FADE_DURATION_MS } from "@/styles/motion-tokens";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { splitGrowingLabel } from "./growing-label-parts";
 
@@ -13,66 +35,39 @@ interface GrowingLabelProps {
   fadeIncoming?: boolean;
 }
 
-const GROWING_LABEL_CHUNK_SCALE = 0.9;
-const GROWING_LABEL_CHUNK_TRANSITION = `opacity ${MOTION_STREAM_WORD_FADE_DURATION_MS}ms ${MOTION_ARRIVE_CSS}, transform ${MOTION_STREAM_WORD_FADE_DURATION_MS}ms ${MOTION_ARRIVE_CSS}`;
-// `transform` only applies to inline elements that are also `inline-block`
-// (or a replaced element) per the CSS Transforms spec -- a plain nested span
-// ignores it otherwise.
+const GROWING_LABEL_CHUNK_TRANSITION = `opacity ${MOTION_STREAM_WORD_FADE_DURATION_MS}ms ${MOTION_ARRIVE_CSS}`;
+
 const growingLabelChunkHiddenStyle = inlineUnistylesStyle({
-  display: "inline-block" as TextStyle["display"],
-  transformOrigin: "left center",
   opacity: 0,
-  transform: [{ scaleX: GROWING_LABEL_CHUNK_SCALE }],
   transition: GROWING_LABEL_CHUNK_TRANSITION,
 });
 const growingLabelChunkVisibleStyle = inlineUnistylesStyle({
-  display: "inline-block" as TextStyle["display"],
-  transformOrigin: "left center",
   opacity: 1,
-  transform: [{ scaleX: 1 }],
   transition: GROWING_LABEL_CHUNK_TRANSITION,
 });
 
 /**
- * A chunk starts at its target's opposite (hidden if growing in, visible if
- * about to shrink out) and flips right after mount so the CSS transition has
- * two committed frames to animate between -- the same state-toggle fix used
- * for stream word fades, extended with a horizontal scale so the subsection
- * reads as expanding or collapsing, not just fading.
+ * Fades in a newly appended suffix while the parent container eases its width
+ * to fit. Starts at opacity 0 and toggles to 1 on mount so the browser has two
+ * committed frames to transition between.
  */
-function GrowingLabelChunk({
-  text,
-  target,
-  onExited,
-}: {
-  text: string;
-  target: boolean;
-  onExited?: () => void;
-}) {
-  const [revealed, setRevealed] = useState(!target);
+function GrowingLabelChunk({ text }: { text: string }) {
+  const [visible, setVisible] = useState(false);
   useEffect(() => {
-    setRevealed(target);
-    if (target || !onExited) {
-      return undefined;
-    }
-    const timer = setTimeout(onExited, MOTION_STREAM_WORD_FADE_DURATION_MS);
-    return () => clearTimeout(timer);
-  }, [target, onExited]);
+    setVisible(true);
+  }, []);
   return (
-    <Text style={revealed ? growingLabelChunkVisibleStyle : growingLabelChunkHiddenStyle}>
+    <Text style={visible ? growingLabelChunkVisibleStyle : growingLabelChunkHiddenStyle}>
       {text}
     </Text>
   );
 }
 
 /**
- * An animated width clip used to sit here so a growing label eased toward its
- * new size instead of snapping. At streaming speed the clip could never catch
- * up to the text, so `numberOfLines={1}` permanently truncated it to "..." --
- * a label just needs to size to its content immediately, like it did before
- * that clip existed. The new suffix still grows in (and a removed suffix
- * shrinks out) via GrowingLabelChunk, just without constraining the whole
- * label's width.
+ * An animated label whose width smoothly expands and shrinks as summary
+ * sentences change. The inner text sizes unconstrained so `numberOfLines={1}`
+ * never prematurely truncates to "..." mid-animation, while the outer clip eases
+ * width to dynamically shift in length without popping or showing blank gaps.
  */
 export function GrowingLabel({
   text,
@@ -81,45 +76,86 @@ export function GrowingLabel({
   onLayout,
   fadeIncoming = true,
 }: GrowingLabelProps) {
+  const animationsEnabled = useAnimationsEnabled();
   const previousTextRef = useRef("");
   const parts = splitGrowingLabel(previousTextRef.current, text);
-  const [outgoingChunk, setOutgoingChunk] = useState<{ key: number; text: string } | null>(null);
-  const outgoingKeyRef = useRef(0);
 
   useLayoutEffect(() => {
-    if (fadeIncoming && isWeb && parts.outgoing.length > 0) {
-      outgoingKeyRef.current += 1;
-      setOutgoingChunk({ key: outgoingKeyRef.current, text: parts.outgoing });
-    }
     previousTextRef.current = text;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- parts is derived from text each render
-  }, [text, fadeIncoming]);
+  }, [text]);
 
-  const handleOutgoingExited = useCallback(() => setOutgoingChunk(null), []);
+  const contentWidthRef = useRef<number | null>(null);
+  const width = useSharedValue(MOTION_CLIP_AUTO);
+
+  const applyMeasuredWidth = useCallback(
+    (nextWidth: number) => {
+      if (nextWidth <= 0) {
+        return;
+      }
+      const previousWidth = contentWidthRef.current;
+      if (previousWidth !== null && Math.abs(nextWidth - previousWidth) <= 0.5) {
+        return;
+      }
+      contentWidthRef.current = nextWidth;
+      if (previousWidth === null || !animationsEnabled) {
+        cancelAnimation(width);
+        width.value = nextWidth;
+        return;
+      }
+      cancelAnimation(width);
+      width.value = withTiming(nextWidth, MOTION_ARRIVE_TIMING);
+    },
+    [animationsEnabled, width],
+  );
+
+  const { setNodeRef, onLayout: onObservedLayout } = useObservedSize({
+    enabled: true,
+    axis: "width",
+    onSize: applyMeasuredWidth,
+    revision: text,
+  });
+
+  const clipStyle = useAnimatedStyle(() => resolveGrowthClipFrameStyle(width.value, "width"));
 
   const incoming: ReactNode =
     fadeIncoming && isWeb && parts.incoming.length > 0 ? (
       <GrowingLabelChunk
-        key={`in-${previousTextRef.current.length}`}
+        key={`in-${previousTextRef.current.length}-${text.length}`}
         text={parts.incoming}
-        target
       />
     ) : (
       parts.incoming
     );
 
   return (
-    <Text style={style} numberOfLines={numberOfLines} onLayout={onLayout}>
-      {parts.prefix}
-      {outgoingChunk ? (
-        <GrowingLabelChunk
-          key={outgoingChunk.key}
-          text={outgoingChunk.text}
-          target={false}
-          onExited={handleOutgoingExited}
-        />
-      ) : null}
-      {incoming}
-    </Text>
+    <Animated.View style={[styles.clip, clipStyle]}>
+      <View ref={setNodeRef} collapsable={false} onLayout={onObservedLayout} style={styles.inner}>
+        <Text style={style} numberOfLines={numberOfLines} onLayout={onLayout}>
+          {parts.prefix}
+          {incoming}
+        </Text>
+      </View>
+    </Animated.View>
   );
 }
+
+const styles = StyleSheet.create((_theme) => ({
+  clip: {
+    alignSelf: "flex-start",
+    maxWidth: "100%",
+    minWidth: 0,
+    overflow: "hidden",
+  },
+  inner: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    maxWidth: "100%",
+    ...(isWeb
+      ? {
+          minWidth: "max-content" as unknown as ViewStyle["minWidth"],
+          width: "max-content" as unknown as ViewStyle["width"],
+        }
+      : {}),
+  },
+}));

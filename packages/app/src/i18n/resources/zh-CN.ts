@@ -2138,6 +2138,10 @@ export const zhCN: TranslationResources = {
       detailLevel: {
         title: "详细程度",
       },
+      animations: {
+        title: "动画",
+        description: "在项目出现、流式输出和重新排序时播放淡入、滑动和缓动",
+      },
       chatOutline: {
         title: "聊天大纲",
         description: "显示用于在提示词之间跳转的大纲",

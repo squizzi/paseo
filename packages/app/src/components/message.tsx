@@ -85,6 +85,7 @@ import { resolveToolCallIcon } from "@/utils/tool-call-icon";
 import { getMarkdownListMarker, getMarkdownListSpacing } from "@/utils/markdown-list";
 import { markdownNodeContainsType } from "@/utils/markdown-ast";
 import { useStableEvent } from "@/hooks/use-stable-event";
+import { useAnimationsEnabled } from "@/hooks/use-settings";
 import { HighlightedCodeBlock } from "@/components/highlighted-code-block";
 import { MarkdownFenceBlock } from "@/components/markdown/fence";
 import type { MarkdownPhase } from "@/components/markdown/fence/types";
@@ -788,6 +789,7 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
         animateOnMount={animateChrome}
         offsetPx={MOTION_MICRO_OFFSET_PX}
         delayMs={motionStaggerDelayMs(0)}
+        origin="bottom-left"
       >
         <TurnCopyButton
           getContent={getContent}
@@ -799,6 +801,7 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
           animateOnMount={animateChrome}
           offsetPx={MOTION_MICRO_OFFSET_PX}
           delayMs={motionStaggerDelayMs(1)}
+          origin="bottom-left"
         >
           <AssistantForkMenu onFork={handleFork} />
         </ChatEntryMotion>
@@ -808,6 +811,7 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
           animateOnMount={animateChrome}
           offsetPx={MOTION_MICRO_OFFSET_PX}
           delayMs={motionStaggerDelayMs(canFork ? 2 : 1)}
+          origin="bottom-left"
         >
           <Pressable
             onPress={handlePress}
@@ -1561,6 +1565,7 @@ function AssistantMessageBlock({
   clipGrowth,
   children,
 }: AssistantMessageBlockProps) {
+  const animationsEnabled = useAnimationsEnabled();
   const style = useMemo(() => (marginBottom > 0 ? { marginBottom } : undefined), [marginBottom]);
   const handleLayout = useCallback(
     (event: LayoutChangeEvent) => {
@@ -1573,7 +1578,10 @@ function AssistantMessageBlock({
   // transition would fight it. Once streamed, spacing shifts ease on the
   // shared curve so a settling neighbor tracks the row above it.
   return (
-    <Animated.View style={style} layout={clipGrowth ? undefined : chatLayoutTransition()}>
+    <Animated.View
+      style={style}
+      layout={clipGrowth || !animationsEnabled ? undefined : chatLayoutTransition()}
+    >
       <ChatGrowthClip
         enabled={clipGrowth}
         onLayout={isWeb ? handleLayout : undefined}
@@ -1700,6 +1708,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   phase,
 }: AssistantMessageProps) {
   const { t } = useTranslation();
+  const animationsEnabled = useAnimationsEnabled();
   const markdownParser = useMemo(createAssistantMarkdownParser, []);
   const streamingMarkdownParser = useMemo(
     () => createAssistantMarkdownParser({ streaming: true }),
@@ -1836,7 +1845,11 @@ export const AssistantMessage = memo(function AssistantMessage({
           inheritedStyles={inheritedStyles}
           textStyle={styles.text}
         >
-          <StreamWordFade text={node.content} enabled={phase === "streaming"} />
+          <StreamWordFade
+            text={node.content}
+            enabled={phase === "streaming" && animationsEnabled}
+            origin="bottom-left"
+          />
         </MarkdownInheritedText>
       ),
       textgroup: (
@@ -1993,7 +2006,13 @@ export const AssistantMessage = memo(function AssistantMessage({
               inheritedStyles={inheritedStyles}
               codeInlineStyle={styles.code_inline}
               linkStyle={styles.link}
-            />
+            >
+              <StreamWordFade
+                text={content}
+                enabled={phase === "streaming" && animationsEnabled}
+                origin="bottom-left"
+              />
+            </AssistantInlineCodePathLink>
           );
         }
 
@@ -2011,7 +2030,11 @@ export const AssistantMessage = memo(function AssistantMessage({
               codeInlineStyle={styles.code_inline}
               linkStyle={styles.link}
             >
-              {content}
+              <StreamWordFade
+                text={content}
+                enabled={phase === "streaming" && animationsEnabled}
+                origin="bottom-left"
+              />
             </AssistantMarkdownCodeLink>
           );
         }
@@ -2024,7 +2047,11 @@ export const AssistantMessage = memo(function AssistantMessage({
             textStyle={styles.code_inline}
             monoSurface
           >
-            {content}
+            <StreamWordFade
+              text={content}
+              enabled={phase === "streaming" && animationsEnabled}
+              origin="bottom-left"
+            />
           </MarkdownInheritedText>
         );
       },
@@ -2152,7 +2179,16 @@ export const AssistantMessage = memo(function AssistantMessage({
         );
       },
     };
-  }, [client, fileLinkActions, markdownParser, occurrenceKey, phase, serverId, workspaceRoot]);
+  }, [
+    animationsEnabled,
+    client,
+    fileLinkActions,
+    markdownParser,
+    occurrenceKey,
+    phase,
+    serverId,
+    workspaceRoot,
+  ]);
 
   const blocks = useMemo(() => splitMarkdownBlocks(revealedMessage), [revealedMessage]);
   const keyedBlocks = useMemo(() => {

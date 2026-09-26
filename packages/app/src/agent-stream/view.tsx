@@ -102,7 +102,7 @@ import { navigateToWorkspace } from "@/stores/navigation-active-workspace-store"
 import { useStableEvent } from "@/hooks/use-stable-event";
 import { useForkAgent } from "@/hooks/use-fork-agent";
 import { isWeb } from "@/constants/platform";
-import { MOTION_ARRIVE_DURATION_MS } from "@/styles/motion-tokens";
+import { MOTION_ARRIVE_DURATION_MS, type ChatMotionOrigin } from "@/styles/motion-tokens";
 import type { Theme } from "@/styles/theme";
 import { recordRenderProfileReasons } from "@/utils/render-profiler";
 import { useRetainedPanelActive } from "@/components/retained-panel";
@@ -264,11 +264,14 @@ function renderStreamItemWithTurnFooter(input: {
       onForkAssistantTurn={input.onForkAssistantTurn}
     />
   ) : null;
+  const origin: ChatMotionOrigin =
+    input.layoutItem.item.kind === "user_message" ? "top-right" : "bottom-left";
   const content = (
     <StreamItemWrapper
       itemId={input.layoutItem.item.id}
       gapBelow={input.layoutItem.gapBelow}
       animateEntry={input.animateEntry}
+      origin={origin}
     >
       {input.content}
     </StreamItemWrapper>
@@ -1883,10 +1886,17 @@ interface StreamItemWrapperProps {
   itemId: string;
   gapBelow: number;
   animateEntry: boolean;
+  origin?: ChatMotionOrigin;
   children: ReactNode;
 }
 
-function StreamItemWrapper({ itemId, gapBelow, animateEntry, children }: StreamItemWrapperProps) {
+function StreamItemWrapper({
+  itemId,
+  gapBelow,
+  animateEntry,
+  origin,
+  children,
+}: StreamItemWrapperProps) {
   const wrapperStyle = useMemo(
     () => [stylesheet.streamItemWrapper, { marginBottom: gapBelow }],
     [gapBelow],
@@ -1895,6 +1905,7 @@ function StreamItemWrapper({ itemId, gapBelow, animateEntry, children }: StreamI
   return (
     <ChatEntryMotion
       animateOnMount={animateEntry}
+      origin={origin}
       style={wrapperStyle}
       testID="stream-item"
       dataSet={dataSet}

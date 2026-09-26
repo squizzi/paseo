@@ -164,6 +164,7 @@ interface AssistantInlineCodePathLinkProps {
   inheritedStyles: TextStyle;
   codeInlineStyle: TextStyle;
   linkStyle: TextStyle;
+  children?: ReactNode;
 }
 
 export function AssistantInlineCodePathLink({
@@ -171,6 +172,7 @@ export function AssistantInlineCodePathLink({
   inheritedStyles,
   codeInlineStyle,
   linkStyle,
+  children,
 }: AssistantInlineCodePathLinkProps) {
   const source = useMemo<AssistantFileLinkSource>(
     () => ({
@@ -188,7 +190,7 @@ export function AssistantInlineCodePathLink({
       codeInlineStyle={codeInlineStyle}
       linkStyle={linkStyle}
     >
-      {content}
+      {children ?? content}
     </AssistantMarkdownCodeLink>
   );
 }

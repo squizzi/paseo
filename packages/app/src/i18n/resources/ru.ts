@@ -2200,6 +2200,11 @@ export const ru: TranslationResources = {
       detailLevel: {
         title: "Уровень детализации",
       },
+      animations: {
+        title: "Анимации",
+        description:
+          "Появление, скольжение и сглаживание элементов при показе, потоке и перестановке",
+      },
       chatOutline: {
         title: "Оглавление чата",
         description: "Показывать оглавление для перехода между запросами",

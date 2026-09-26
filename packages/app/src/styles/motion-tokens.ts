@@ -106,16 +106,26 @@ export function resolveArriveFadeStyle(progress: number, offsetPx: number): Arri
 /** Barely-perceptible scale-up alongside the rise, so it doesn't shrink the arrive offset. */
 export const CHAT_ENTRY_SCALE_FROM = 0.98;
 
+export type ChatMotionOrigin = "top-right" | "bottom-left";
+
 export interface ChatEntryFadeStyle {
   opacity: number;
+  transformOrigin: [string, string, number];
   transform: [{ translateY: number }, { scale: number }];
 }
 
 /** Chat row arrival: fade, rise, and a faint scale-up for weight. */
-export function resolveChatEntryFadeStyle(progress: number, offsetPx: number): ChatEntryFadeStyle {
+export function resolveChatEntryFadeStyle(
+  progress: number,
+  offsetPx: number,
+  origin: ChatMotionOrigin = "bottom-left",
+): ChatEntryFadeStyle {
   "worklet";
+  const transformOrigin: [string, string, number] =
+    origin === "top-right" ? ["100%", "0%", 0] : ["0%", "100%", 0];
   return {
     opacity: progress,
+    transformOrigin,
     transform: [
       { translateY: offsetPx * (1 - progress) },
       { scale: CHAT_ENTRY_SCALE_FROM + (1 - CHAT_ENTRY_SCALE_FROM) * progress },

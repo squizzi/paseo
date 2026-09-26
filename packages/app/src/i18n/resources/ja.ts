@@ -2181,6 +2181,10 @@ export const ja: TranslationResources = {
       detailLevel: {
         title: "詳細レベル",
       },
+      animations: {
+        title: "アニメーション",
+        description: "項目の表示、ストリーミング、並べ替え時にフェード・スライド・イージングする",
+      },
       chatOutline: {
         title: "チャットのアウトライン",
         description: "プロンプト間を移動するためのアウトラインを表示します",

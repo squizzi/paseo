@@ -2282,6 +2282,10 @@ export const en = {
       detailLevel: {
         title: "Detail level",
       },
+      animations: {
+        title: "Animations",
+        description: "Fade, slide, and ease items as they appear, stream, and reorder",
+      },
       chatOutline: {
         title: "Chat outline",
         description: "Show an outline for jumping between prompts",

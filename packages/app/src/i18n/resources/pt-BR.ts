@@ -2197,6 +2197,10 @@ export const ptBR: TranslationResources = {
       detailLevel: {
         title: "Nível de detalhe",
       },
+      animations: {
+        title: "Animações",
+        description: "Esmaecer, deslizar e suavizar itens ao aparecer, transmitir e reordenar",
+      },
       chatOutline: {
         title: "Estrutura do chat",
         description: "Mostrar uma estrutura para navegar entre prompts",

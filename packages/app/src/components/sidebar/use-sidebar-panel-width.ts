@@ -8,6 +8,7 @@ import {
   withTiming,
 } from "react-native-reanimated";
 import { MOTION_ARRIVE_TIMING, MOTION_EXIT_TIMING } from "@/styles/motion";
+import { useAnimationsEnabled } from "@/hooks/use-settings";
 import {
   resolveSidebarPanelFrameStyle,
   resolveSidebarPanelInnerLock,
@@ -31,7 +32,8 @@ export function useSidebarPanelWidth(input: {
    */
   isSettingsRoute?: boolean;
 }) {
-  const reducedMotion = useReducedMotion() === true;
+  const animationsEnabled = useAnimationsEnabled();
+  const reducedMotion = useReducedMotion() === true || !animationsEnabled;
   const width = useSharedValue(input.open ? input.openWidth : 0);
   const lockInner = useSharedValue(false);
   const lockedInnerWidth = useSharedValue(input.openWidth);
