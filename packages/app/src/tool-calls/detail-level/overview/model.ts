@@ -51,6 +51,13 @@ export function buildOverviewGroup(run: ToolCallRun): OverviewToolCallGroup {
       readFiles.add(descriptor.detail.filePath);
     } else if (descriptor.detail.type === "search" || isSearchCall(normalizedName)) {
       searchCount += 1;
+    } else if (
+      descriptor.detail.type === "unknown" &&
+      (descriptor.status === "running" || descriptor.status === "executing")
+    ) {
+      // Streamed input (e.g. Claude's input_json_delta) can land as "unknown" before
+      // enough of the tool call's arguments have arrived to classify it. Wait for the
+      // call to settle into a real type or finish running before counting it as "other".
     } else {
       otherToolCount += 1;
     }

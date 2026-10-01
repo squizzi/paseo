@@ -313,6 +313,38 @@ describe("tool call detail-level projection", () => {
     });
   });
 
+  it("excludes still-streaming unknown-type calls from the other-tool count", () => {
+    const calls = [
+      toolCall("1", { type: "shell", command: "npm test" }),
+      toolCall(
+        "2",
+        { type: "unknown", input: null, output: null },
+        { name: "Bash", status: "running" },
+      ),
+    ];
+
+    const result = project({ level: "overview", head: calls, isTurnActive: true });
+
+    expect(result.groupsByHostId.get("1")).toMatchObject({
+      isLoading: true,
+      summary: { commandCount: 1, otherToolCount: 0 },
+    });
+  });
+
+  it("counts an unknown-type call once it finishes still unclassified", () => {
+    const calls = [
+      toolCall("1", { type: "shell", command: "npm test" }),
+      toolCall("2", { type: "unknown", input: null, output: null }, { name: "Bash" }),
+    ];
+
+    const result = project({ level: "overview", head: calls });
+
+    expect(result.groupsByHostId.get("1")).toMatchObject({
+      isLoading: false,
+      summary: { commandCount: 1, otherToolCount: 1 },
+    });
+  });
+
   it("counts Paseo calls separately from other tools", () => {
     const calls = [
       toolCall("1", { type: "unknown", input: null, output: null }, { name: "paseo.list_agents" }),
