@@ -55,6 +55,16 @@ export function splitComposerAttachmentsForSubmit(
       continue;
     }
 
+    if (attachment.kind === "pasted_text") {
+      agentAttachments.push({
+        type: "text",
+        mimeType: "text/plain",
+        title: attachment.title,
+        text: attachment.text,
+      });
+      continue;
+    }
+
     if (attachment.kind === "workspace_file") {
       agentAttachments.push(workspaceFileAttachmentToAgentAttachment(attachment));
       continue;

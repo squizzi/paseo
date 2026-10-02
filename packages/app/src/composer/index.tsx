@@ -157,6 +157,8 @@ import {
   getWorkspaceFileAttachmentKey,
   getWorkspaceFileAttachmentSubtitle,
 } from "@/attachments/workspace-file";
+import { createPastedTextAttachment } from "@/attachments/pasted-text";
+import type { PastedTextComposerAttachment } from "@/attachments/types";
 import {
   resolveWorkspaceFileDrop,
   type WorkspaceFileDragPayload,
@@ -415,6 +417,18 @@ function renderComposerAttachmentPill(args: RenderComposerAttachmentPillArgs): R
     return (
       <FileAttachmentPill
         key={attachment.attachment.id}
+        attachment={attachment}
+        index={index}
+        disabled={disabled}
+        onRemove={onRemove}
+        removeLabel={labels.removeFile}
+      />
+    );
+  }
+  if (attachment.kind === "pasted_text") {
+    return (
+      <PastedTextAttachmentPill
+        key={attachment.id}
         attachment={attachment}
         index={index}
         disabled={disabled}
@@ -819,6 +833,44 @@ function FileAttachmentPill({
         title={fileName}
         subtitle={getFileTypeLabel(fileName) ?? t("message.attachments.file")}
       />
+    </AttachmentPill>
+  );
+}
+
+interface PastedTextAttachmentPillProps {
+  attachment: PastedTextComposerAttachment;
+  index: number;
+  disabled: boolean;
+  onRemove: (index: number) => void;
+  removeLabel: string;
+}
+
+function PastedTextAttachmentPill({
+  attachment,
+  index,
+  disabled,
+  onRemove,
+  removeLabel,
+}: PastedTextAttachmentPillProps) {
+  const { t } = useTranslation();
+  const handleRemove = useCallback(() => {
+    onRemove(index);
+  }, [onRemove, index]);
+  const lineCount = attachment.text.split("\n").length;
+  const subtitle = t("composer.attachments.pastedTextSubtitle", {
+    count: lineCount,
+    defaultValue: `${lineCount} lines`,
+  });
+  return (
+    <AttachmentPill
+      testID="composer-pasted-text-attachment-pill"
+      onOpen={noopCallback}
+      onRemove={handleRemove}
+      openAccessibilityLabel={attachment.title}
+      removeAccessibilityLabel={removeLabel}
+      disabled={disabled}
+    >
+      <AttachmentLabel icon={filePillIcon} title={attachment.title} subtitle={subtitle} />
     </AttachmentPill>
   );
 }
@@ -1751,6 +1803,14 @@ function ComposerContentImpl({
     [addImages, t],
   );
 
+  const handlePasteText = useCallback(
+    (text: string) => {
+      const attachment = createPastedTextAttachment(text);
+      setSelectedAttachments((current) => [...current, attachment]);
+    },
+    [setSelectedAttachments],
+  );
+
   const uploadSelectedFiles = useCallback(
     async (files: SelectedFile[]) => {
       if (files.length === 0) return;
@@ -2404,6 +2464,7 @@ function ComposerContentImpl({
                   onAttachButtonRef={handleAttachButtonRef}
                   onAddImages={addImages}
                   onPasteImages={handleNativePasteImages}
+                  onPasteText={handlePasteText}
                   client={client}
                   isReadyForDictation={isDictationReady}
                   placeholder={messagePlaceholder}

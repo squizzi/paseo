@@ -165,6 +165,25 @@ describe("draft-store normalization", () => {
     ).toEqual({ text: "Review this", attachments: [attachment] });
   });
 
+  it("preserves pasted text attachments when hydrating a draft", () => {
+    const attachment = {
+      kind: "pasted_text" as const,
+      id: "paste-123",
+      title: "Pasted Text (Oct 2, 1:45 PM)",
+      text: "Large block of code or logs",
+      createdAt: 1000,
+    };
+
+    expect(
+      toDraftInputIfReady({
+        input: { text: "Review this", attachments: [attachment] },
+        lifecycle: "active",
+        updatedAt: 1,
+        version: 1,
+      }),
+    ).toEqual({ text: "Review this", attachments: [attachment] });
+  });
+
   it("preserves New Workspace picker ownership when hydrating a draft", () => {
     const pickerAttachment = {
       kind: "github_pr" as const,
