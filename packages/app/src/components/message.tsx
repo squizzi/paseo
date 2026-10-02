@@ -126,7 +126,6 @@ import { RewindMenu, type RewindMode } from "@/components/rewind/rewind-menu";
 import { useRewindAgentMutation } from "@/components/rewind/use-rewind-agent-mutation";
 import { AssistantForkMenu, type AssistantForkTarget } from "@/components/assistant-fork-menu";
 import { useRetainedPanelActive } from "@/components/retained-panel";
-import { useRetainedShimmerMetrics } from "@/components/expandable-badge-shimmer";
 import {
   markdownCopyDataSet,
   markdownCopyOrderedListDataSet,

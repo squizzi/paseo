@@ -868,6 +868,8 @@ function FileAttachmentPill({
   );
 }
 
+const noopCallback = () => {};
+
 interface PastedTextAttachmentPillProps {
   attachment: PastedTextComposerAttachment;
   index: number;
