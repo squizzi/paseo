@@ -105,6 +105,7 @@ import { RewindMenu, type RewindMode } from "@/components/rewind/rewind-menu";
 import { useRewindAgentMutation } from "@/components/rewind/use-rewind-agent-mutation";
 import { AssistantForkMenu, type AssistantForkTarget } from "@/components/assistant-fork-menu";
 import { useRetainedPanelActive } from "@/components/retained-panel";
+import { useRetainedShimmerMetrics } from "@/components/expandable-badge-shimmer";
 import {
   markdownCopyDataSet,
   markdownCopyOrderedListDataSet,
@@ -2576,55 +2577,6 @@ function renderExpandableBadgeIconSlot({
   return iconNode;
 }
 
-function computeShimmerMetrics(input: {
-  label: string;
-  secondaryLabel: string | undefined;
-  isLoading: boolean;
-  labelRowWidth: number;
-  labelRowHeight: number;
-  labelOffsetX: number;
-  labelWidth: number;
-  secondaryOffsetX: number;
-  secondaryWidth: number;
-}) {
-  const totalShimmerChars = input.label.trim().length + (input.secondaryLabel?.trim().length ?? 0);
-  const shortTextDurationAdjustment = totalShimmerChars <= 12 ? 0.25 : 0;
-  const shimmerDuration = Math.max(
-    1,
-    Math.min(2.3, 1.25 + totalShimmerChars * 0.008 - shortTextDurationAdjustment),
-  );
-  const nativeShimmerPeakWidth = Math.max(
-    32,
-    Math.min(120, input.labelRowWidth > 0 ? input.labelRowWidth * 0.28 : 0),
-  );
-  const isWebShimmer = input.isLoading && isWeb;
-  // React Native Web only observes a node when onLayout exists at mount. Keep
-  // measuring while idle so a retained badge has dimensions when it starts loading.
-  const shouldMeasureWebShimmer = isWeb;
-  const shouldMeasureNativeShimmer = input.isLoading && isNative;
-  const isNativeShimmer =
-    shouldMeasureNativeShimmer && input.labelRowWidth > 0 && input.labelRowHeight > 0;
-  const webShimmerSpanStartX = input.labelOffsetX;
-  const webShimmerSpanEndX = input.secondaryLabel
-    ? input.secondaryOffsetX + input.secondaryWidth
-    : input.labelOffsetX + input.labelWidth;
-  const webShimmerSpanWidth = Math.max(1, webShimmerSpanEndX - webShimmerSpanStartX);
-  const webShimmerPeakWidth = Math.max(42, Math.min(120, webShimmerSpanWidth * 0.22));
-  const webShimmerTrackStart = webShimmerSpanStartX - webShimmerPeakWidth;
-  const webShimmerTrackEnd = webShimmerSpanEndX;
-  return {
-    shimmerDuration,
-    nativeShimmerPeakWidth,
-    isWebShimmer,
-    shouldMeasureWebShimmer,
-    shouldMeasureNativeShimmer,
-    isNativeShimmer,
-    webShimmerPeakWidth,
-    webShimmerTrackStart,
-    webShimmerTrackEnd,
-  };
-}
-
 function useDetailWheelPropagationBlocker(input: {
   detailWrapperRef: React.RefObject<View | null>;
   enabled: boolean;
@@ -2738,18 +2690,21 @@ export const ExpandableBadge = memo(function ExpandableBadge({
 
   const {
     shimmerDuration,
-    nativeShimmerPeakWidth,
+    peakWidth,
+    trackStart,
+    trackEnd,
+    rowWidth: retainedRowWidth,
+    rowHeight: retainedRowHeight,
     isWebShimmer,
     shouldMeasureWebShimmer,
     shouldMeasureNativeShimmer,
     isNativeShimmer,
-    webShimmerPeakWidth,
-    webShimmerTrackStart,
-    webShimmerTrackEnd,
-  } = computeShimmerMetrics({
+  } = useRetainedShimmerMetrics({
     label,
     secondaryLabel,
     isLoading,
+    isWeb,
+    isNative,
     labelRowWidth,
     labelRowHeight,
     labelOffsetX,
@@ -2810,40 +2765,26 @@ export const ExpandableBadge = memo(function ExpandableBadge({
     () =>
       buildShimmerTextStyle({
         isWebShimmer,
-        webShimmerPeakWidth,
+        webShimmerPeakWidth: peakWidth,
         shimmerDuration,
-        webShimmerTrackStart,
-        webShimmerTrackEnd,
+        webShimmerTrackStart: trackStart,
+        webShimmerTrackEnd: trackEnd,
         offsetX: labelOffsetX,
       }),
-    [
-      isWebShimmer,
-      webShimmerPeakWidth,
-      shimmerDuration,
-      webShimmerTrackStart,
-      webShimmerTrackEnd,
-      labelOffsetX,
-    ],
+    [isWebShimmer, peakWidth, shimmerDuration, trackStart, trackEnd, labelOffsetX],
   );
 
   const shimmerSecondaryStyle = useMemo<StyleProp<TextStyle>>(
     () =>
       buildShimmerTextStyle({
         isWebShimmer,
-        webShimmerPeakWidth,
+        webShimmerPeakWidth: peakWidth,
         shimmerDuration,
-        webShimmerTrackStart,
-        webShimmerTrackEnd,
+        webShimmerTrackStart: trackStart,
+        webShimmerTrackEnd: trackEnd,
         offsetX: secondaryOffsetX,
       }),
-    [
-      isWebShimmer,
-      webShimmerPeakWidth,
-      shimmerDuration,
-      webShimmerTrackStart,
-      webShimmerTrackEnd,
-      secondaryOffsetX,
-    ],
+    [isWebShimmer, peakWidth, shimmerDuration, trackStart, trackEnd, secondaryOffsetX],
   );
 
   const containerStyle = useMemo(
@@ -2973,9 +2914,9 @@ export const ExpandableBadge = memo(function ExpandableBadge({
             isNativeShimmer={isNativeShimmer}
             shimmerLabelTextStyle={shimmerLabelTextStyle}
             shimmerSecondaryTextStyle={shimmerSecondaryTextStyle}
-            labelRowWidth={labelRowWidth}
-            labelRowHeight={labelRowHeight}
-            nativeShimmerPeakWidth={nativeShimmerPeakWidth}
+            labelRowWidth={retainedRowWidth}
+            labelRowHeight={retainedRowHeight}
+            nativeShimmerPeakWidth={peakWidth}
             shimmerDuration={shimmerDuration}
             nativeGradientId={nativeGradientIdRef.current}
             onLabelRowLayout={handleLabelRowLayout}
