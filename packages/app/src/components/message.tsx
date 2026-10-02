@@ -128,6 +128,7 @@ import { RewindMenu, type RewindMode } from "@/components/rewind/rewind-menu";
 import { useRewindAgentMutation } from "@/components/rewind/use-rewind-agent-mutation";
 import { AssistantForkMenu, type AssistantForkTarget } from "@/components/assistant-fork-menu";
 import { useRetainedPanelActive } from "@/components/retained-panel";
+import { useRetainedShimmerMetrics } from "@/components/expandable-badge-shimmer";
 import {
   markdownCopyDataSet,
   markdownCopyImageDataSet,
@@ -2953,14 +2954,16 @@ export const ExpandableBadge = memo(function ExpandableBadge({
   const [secondaryOffsetX, setSecondaryOffsetX] = useState(0);
   const [secondaryWidth, setSecondaryWidth] = useState(0);
   const {
-    isWebShimmer,
-    shouldMeasureWebShimmer,
-    shouldMeasureNativeShimmer,
-    isNativeShimmer,
     shimmerDuration,
     peakWidth,
     trackStart,
     trackEnd,
+    rowWidth: retainedRowWidth,
+    rowHeight: retainedRowHeight,
+    isWebShimmer,
+    shouldMeasureWebShimmer,
+    shouldMeasureNativeShimmer,
+    isNativeShimmer,
   } = useRetainedShimmerMetrics({
     label,
     secondaryLabel,
@@ -3175,8 +3178,8 @@ export const ExpandableBadge = memo(function ExpandableBadge({
             isLoading={isLoading}
             shimmerLabelTextStyle={shimmerLabelTextStyle}
             shimmerSecondaryTextStyle={shimmerSecondaryTextStyle}
-            labelRowWidth={labelRowWidth}
-            labelRowHeight={labelRowHeight}
+            labelRowWidth={retainedRowWidth}
+            labelRowHeight={retainedRowHeight}
             nativeShimmerPeakWidth={peakWidth}
             shimmerDuration={shimmerDuration}
             nativeGradientId={nativeGradientIdRef.current}
