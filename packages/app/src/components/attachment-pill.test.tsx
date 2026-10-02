@@ -9,7 +9,8 @@ const { theme } = vi.hoisted(() => ({
     spacing: { 1: 4, 2: 8, 3: 12, 4: 16 },
     borderWidth: { 1: 1 },
     borderRadius: { md: 6, lg: 8 },
-    fontSize: { sm: 13, base: 15 },
+    fontSize: { sm: 13, base: 15, code: 12 },
+    fontFamily: { ui: "system-ui", mono: "monospace" },
     fontWeight: { normal: "400" },
     colors: {
       surface1: "#111",
@@ -25,6 +26,7 @@ const { theme } = vi.hoisted(() => ({
 vi.mock("react-native", () => ({
   View: ({ children, testID }: React.PropsWithChildren<{ testID?: string }>) =>
     React.createElement("div", { "data-testid": testID }, children),
+  ScrollView: ({ children }: React.PropsWithChildren) => React.createElement("div", null, children),
   Text: ({ children }: React.PropsWithChildren) => React.createElement("span", null, children),
   Pressable: ({
     children,
@@ -78,11 +80,6 @@ vi.mock("@/constants/platform", () => ({
 
 vi.mock("@/constants/layout", () => ({
   useIsCompactFormFactor: () => false,
-}));
-
-vi.mock("@/components/tool-call-details", () => ({
-  ToolCallDetailsContent: ({ detail }: { detail: { text?: string } }) =>
-    React.createElement("div", { "data-testid": "tool-call-details" }, detail.text),
 }));
 
 vi.mock("@/attachments/use-attachment-preview-url", () => ({
