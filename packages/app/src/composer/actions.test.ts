@@ -960,6 +960,27 @@ describe("openComposerAttachment", () => {
     });
     expect(externalUrlCalls).toEqual(["https://linear.app/acme/issue/ENG-123/plugin-attachments"]);
   });
+
+  it("does nothing when opening a pasted text attachment", () => {
+    const externalUrlCalls: string[] = [];
+    openComposerAttachment({
+      attachment: {
+        kind: "pasted_text",
+        id: "paste-1",
+        title: "Pasted Text (Oct 2)",
+        text: "Pasted content",
+        createdAt: 12345,
+      },
+      setLightboxMetadata: () => {
+        throw new Error("unexpected lightbox call");
+      },
+      openWorkspaceAttachment: () => false,
+      openExternalUrl: (url) => {
+        externalUrlCalls.push(url);
+      },
+    });
+    expect(externalUrlCalls).toEqual([]);
+  });
 });
 
 describe("toggleForgeAttachment", () => {

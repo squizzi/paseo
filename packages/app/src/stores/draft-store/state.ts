@@ -108,6 +108,13 @@ export const UserComposerAttachmentSchema: z.ZodType<UserComposerAttachment> = z
         }),
       ]),
     }),
+    z.strictObject({
+      kind: z.literal("pasted_text"),
+      id: z.string(),
+      title: z.string(),
+      text: z.string(),
+      createdAt: z.number(),
+    }),
     z.strictObject({ kind: z.literal("forge_issue"), item: IssueItemSchema }),
     z.strictObject({ kind: z.literal("forge_change_request"), item: ChangeRequestItemSchema }),
     z.strictObject({ kind: z.literal("github_issue"), item: IssueItemSchema }),
