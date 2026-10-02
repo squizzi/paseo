@@ -870,6 +870,7 @@ function PastedTextAttachmentPill({
       onRemove={handleRemove}
       openAccessibilityLabel={attachment.title}
       removeAccessibilityLabel={removeLabel}
+      details={getComposerAttachmentPromptPreview(attachment)}
       disabled={disabled}
     >
       <AttachmentLabel icon={filePillIcon} title={attachment.title} subtitle={subtitle} />
