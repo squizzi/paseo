@@ -7,7 +7,7 @@ import {
   useMemo,
   useState,
 } from "react";
-import { Image, Pressable, Text, View } from "react-native";
+import { Image, Pressable, ScrollView, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { ChevronRight, X } from "lucide-react-native";
@@ -17,7 +17,6 @@ import type { AttachmentMetadata } from "@/attachments/types";
 import { useAttachmentPreviewUrl } from "@/attachments/use-attachment-preview-url";
 import { ExpandableBadgeCollapseClip } from "@/components/badge-collapse-clip";
 import { ExpandWidthClip } from "@/components/expand-width-clip";
-import { ToolCallDetailsContent } from "@/components/tool-call-details";
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { MOTION_ARRIVE_CSS, MOTION_ARRIVE_DURATION_MS } from "@/styles/motion-tokens";
 import type { Theme } from "@/styles/theme";
@@ -112,11 +111,19 @@ function AttachmentExpandToggle({
 
 function AttachmentPromptDetails({ text }: { text: string }) {
   const isCompact = useIsCompactFormFactor();
-  const maxHeight = isCompact ? 180 : 260;
-  const detail = useMemo(() => ({ type: "plain_text" as const, text }), [text]);
+  const maxHeight = isCompact ? 320 : 500;
   return (
     <View testID="attachment-prompt-details">
-      <ToolCallDetailsContent detail={detail} maxHeight={maxHeight} />
+      <ScrollView
+        style={[styles.detailScroll, inlineUnistylesStyle({ maxHeight })]}
+        contentContainerStyle={styles.detailContent}
+        nestedScrollEnabled
+        showsVerticalScrollIndicator
+      >
+        <Text selectable style={styles.detailText}>
+          {text}
+        </Text>
+      </ScrollView>
     </View>
   );
 }
@@ -451,8 +458,28 @@ const styles = StyleSheet.create((theme) => ({
     borderWidth: theme.borderWidth[1],
     borderTopWidth: 0,
     borderColor: theme.colors.border,
-    padding: 0,
+    backgroundColor: theme.colors.surface2,
     overflow: "hidden",
+  },
+  detailScroll: {
+    width: "100%",
+    maxWidth: "100%",
+    ...(isWeb
+      ? {
+          scrollbarWidth: "thin",
+          scrollbarColor: `${theme.colors.border} transparent`,
+        }
+      : {}),
+  },
+  detailContent: {
+    padding: theme.spacing[3],
+  },
+  detailText: {
+    fontFamily: theme.fontFamily.mono,
+    fontSize: theme.fontSize.code,
+    color: theme.colors.foreground,
+    lineHeight: 19,
+    overflowWrap: "anywhere",
   },
   labelBody: {
     height: ATTACHMENT_CONTENT_HEIGHT,
