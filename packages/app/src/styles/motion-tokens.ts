@@ -111,23 +111,31 @@ export function resolveChatEntryFadeStyle(
 export type GrowthClipAxis = "width" | "height";
 
 export interface GrowthClipFrameStyle {
-  overflow?: "hidden";
-  width?: number;
-  height?: number;
+  overflow: "hidden" | "visible";
+  width: number | "auto";
+  height: number | "auto";
 }
 
+/**
+ * Always returns the same set of keys, and never `undefined` for the
+ * unconstrained axis. `useAnimatedStyle` diffs style objects across frames on
+ * web: a key whose value turns from a real number to `undefined` is treated
+ * as "no change" and the prior inline pixel value is left on the DOM node
+ * instead of being cleared. Returning the literal `"auto"` forces the style
+ * to actually update.
+ */
 export function resolveGrowthClipFrameStyle(
   size: number,
   axis: GrowthClipAxis,
 ): GrowthClipFrameStyle {
   "worklet";
   if (size < 0) {
-    return {};
+    return { overflow: "visible", width: "auto", height: "auto" };
   }
   if (axis === "width") {
-    return { width: size, overflow: "hidden" };
+    return { overflow: "hidden", width: size, height: "auto" };
   }
-  return { height: size, overflow: "hidden" };
+  return { overflow: "hidden", width: "auto", height: size };
 }
 
 export interface SnapGrowthClipFrameStyle {

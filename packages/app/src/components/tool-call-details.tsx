@@ -1,5 +1,9 @@
-import React, { useMemo, type ReactNode } from "react";
-import { useFollowOutputScroll } from "@/components/ui/follow-output-scroll";
+import React, { useCallback, useMemo, useState, type ReactNode } from "react";
+import {
+  resolveFollowOutputPanelFrameStyle,
+  shouldEnableFollowOutputPanelScroll,
+  useFollowOutputScroll,
+} from "@/components/ui/follow-output-scroll";
 import {
   View,
   Text,
@@ -512,31 +516,57 @@ function ScrollablePlainTextSection({
   persistKey?: string;
 }) {
   const animationsEnabled = useAnimationsEnabled();
-  const { scrollRef, onContentSizeChange, onScroll } = useFollowOutputScroll(
+  const maxHeight = ds.resolvedMaxHeight;
+  const [contentHeight, setContentHeight] = useState(0);
+  const { scrollRef, contentRiseRef, onContentSizeChange, onScroll } = useFollowOutputScroll(
     followOutput,
     persistKey,
+    maxHeight,
   );
+  const frameStyle = useMemo(() => {
+    if (maxHeight === undefined) {
+      return undefined;
+    }
+    return resolveFollowOutputPanelFrameStyle({ contentHeight, maxHeight });
+  }, [contentHeight, maxHeight]);
+  const scrollEnabled =
+    maxHeight === undefined || shouldEnableFollowOutputPanelScroll({ contentHeight, maxHeight });
+  const scrollAreaStyle = useMemo(
+    () => [ds.scrollAreaStyle, frameStyle],
+    [ds.scrollAreaStyle, frameStyle],
+  );
+
+  const handleContentSizeChange = useCallback(
+    (width: number, height: number) => {
+      setContentHeight(height);
+      onContentSizeChange(width, height);
+    },
+    [onContentSizeChange],
+  );
+
   return (
     <View style={styles.section}>
       <ScrollView
         ref={scrollRef}
-        style={ds.scrollAreaStyle}
+        style={scrollAreaStyle}
         contentContainerStyle={styles.scrollContent}
         nestedScrollEnabled
         showsVerticalScrollIndicator
+        scrollEnabled={scrollEnabled}
         scrollEventThrottle={16}
-        onContentSizeChange={onContentSizeChange}
+        onContentSizeChange={handleContentSizeChange}
         onScroll={onScroll}
       >
-        <ChatGrowthClip
-          enabled={followOutput}
-          style={styles.plainTextGrowthClip}
-          testID={followOutput ? "tool-call-detail-growth-clip" : undefined}
-        >
-          <Text selectable style={styles.plainText}>
-            <StreamWordFade text={text} enabled={followOutput && animationsEnabled} />
-          </Text>
-        </ChatGrowthClip>
+        <View ref={contentRiseRef} collapsable={false} style={styles.plainTextGrowthClip}>
+          <ChatGrowthClip
+            enabled={followOutput}
+            testID={followOutput ? "tool-call-detail-growth-clip" : undefined}
+          >
+            <Text selectable style={styles.plainText}>
+              <StreamWordFade text={text} enabled={followOutput && animationsEnabled} />
+            </Text>
+          </ChatGrowthClip>
+        </View>
       </ScrollView>
     </View>
   );

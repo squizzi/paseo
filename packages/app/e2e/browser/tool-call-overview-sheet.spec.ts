@@ -279,6 +279,59 @@ test("keeps overview tool calls inline on desktop", async ({ page }) => {
   }
 });
 
+test("grows a nested tool-call pane near the bottom of the chat", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 1280, height: 520 });
+  const agent = await createOverviewAgent(page, "Nested tool-call pane height");
+
+  try {
+    const gate = await holdStreamAfterFirstCompletedToolCall(page, agent.agentId);
+    await openOverviewAgent(page, agent);
+    await agent.client.sendAgentMessage(agent.agentId, "Exercise nested tool-call expansion.");
+    await gate.waitForFirstCompleted();
+
+    const group = page.getByTestId("tool-call-group").first();
+    await expect(group).toBeVisible();
+    await group.click();
+    gate.release(8);
+
+    const badges = group.getByTestId("tool-call-badge");
+    await expect.poll(() => badges.count(), { timeout: 30_000 }).toBeGreaterThanOrEqual(6);
+    const nestedBadge = badges.last();
+    await nestedBadge.click();
+
+    const clip = nestedBadge.getByTestId("tool-call-detail-entry-clip");
+    await expect(clip).toBeVisible();
+    await expect
+      .poll(async () => clip.evaluate((node) => node.getBoundingClientRect().height), {
+        timeout: 5_000,
+      })
+      .toBeGreaterThan(80);
+
+    const visibility = await clip.evaluate((node) => {
+      const scrollRoot = document.querySelector('[data-testid="agent-chat-scroll"]');
+      if (!(scrollRoot instanceof HTMLElement)) {
+        throw new Error("Expected chat scroll root");
+      }
+      const clipRect = node.getBoundingClientRect();
+      const scrollRect = scrollRoot.getBoundingClientRect();
+      return {
+        clipHeight: clipRect.height,
+        visibleHeight: Math.max(
+          0,
+          Math.min(clipRect.bottom, scrollRect.bottom) - Math.max(clipRect.top, scrollRect.top),
+        ),
+      };
+    });
+    expect(
+      visibility.visibleHeight,
+      `expected the nested pane to stay in the chat viewport, received ${JSON.stringify(visibility)}`,
+    ).toBeGreaterThan(80);
+  } finally {
+    await agent.cleanup();
+  }
+});
+
 test("animates follow-up calls inside an existing overview row", async ({ page }) => {
   test.setTimeout(120_000);
   const agent = await createOverviewAgent(page, "Overview follow-up motion");

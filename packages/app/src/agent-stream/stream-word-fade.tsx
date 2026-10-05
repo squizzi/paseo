@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -15,6 +16,7 @@ import { MOTION_STREAM_WORD_FADE_DURATION_MS } from "@/styles/motion-tokens";
 export interface StreamFadeChunk {
   start: number;
   text: string;
+  startedAtMs: number;
 }
 
 export interface StreamFadeState {
@@ -65,10 +67,15 @@ export function waitForStreamTokAnimations(host: StreamTokAnimationHost): Promis
 
 const EMPTY_STREAM_FADE_CHUNKS: StreamFadeChunk[] = [];
 
+function streamFadeNowMs(): number {
+  return performance.now();
+}
+
 export function nextStreamFadeState(
   state: StreamFadeState,
   text: string,
   enabled: boolean,
+  nowMs: number,
 ): StreamFadeState {
   if (!enabled) {
     if (state.chunks.length === 0 && state.committed === text) {
@@ -85,12 +92,48 @@ export function nextStreamFadeState(
   if (text.startsWith(visible)) {
     return {
       committed: state.committed,
-      chunks: [...state.chunks, { start: visible.length, text: text.slice(visible.length) }],
+      chunks: [
+        ...state.chunks,
+        { start: visible.length, text: text.slice(visible.length), startedAtMs: nowMs },
+      ],
     };
   }
 
   // Upstream rewrote earlier text. Snap to visible rather than replaying fades.
   return { committed: text, chunks: EMPTY_STREAM_FADE_CHUNKS };
+}
+
+/**
+ * Fold arrivals whose fade envelope has elapsed into the committed prefix.
+ * Finished spans keep the animation class otherwise, and a later markdown
+ * remount replays the fade on lines that already painted.
+ */
+export function settleStreamFadeChunks(
+  state: StreamFadeState,
+  nowMs: number,
+  durationMs: number,
+): StreamFadeState {
+  if (state.chunks.length === 0) {
+    return state;
+  }
+
+  let settleCount = 0;
+  for (const chunk of state.chunks) {
+    if (nowMs - chunk.startedAtMs < durationMs) {
+      break;
+    }
+    settleCount += 1;
+  }
+  if (settleCount === 0) {
+    return state;
+  }
+
+  const settled = state.chunks.slice(0, settleCount);
+  const remaining = state.chunks.slice(settleCount);
+  return {
+    committed: state.committed + settled.map((chunk) => chunk.text).join(""),
+    chunks: remaining.length === 0 ? EMPTY_STREAM_FADE_CHUNKS : remaining,
+  };
 }
 
 export interface FadingTextPiece {
@@ -345,16 +388,41 @@ export function StreamWordFade({
   const [tokensVisible, setTokensVisible] = useState(fadingEnabled);
   const keepTokens = fadingEnabled || tokensVisible;
   const [state, setState] = useState<StreamFadeState>(() =>
-    nextStreamFadeState({ committed: "", chunks: EMPTY_STREAM_FADE_CHUNKS }, text, fadingEnabled),
+    nextStreamFadeState(
+      { committed: "", chunks: EMPTY_STREAM_FADE_CHUNKS },
+      text,
+      fadingEnabled,
+      streamFadeNowMs(),
+    ),
   );
-  const nextState = nextStreamFadeState(state, text, keepTokens);
+  const nextState = nextStreamFadeState(state, text, keepTokens, streamFadeNowMs());
   if (nextState !== state) {
     setState(nextState);
   }
+  const oldestChunkStart = nextState.chunks[0]?.start;
+  const oldestChunkStartedAtMs = nextState.chunks[0]?.startedAtMs;
 
   const setHostNode = useCallback((node: unknown) => {
     hostRef.current = node instanceof HTMLElement ? node : null;
   }, []);
+
+  useEffect(() => {
+    if (oldestChunkStartedAtMs === undefined) {
+      return;
+    }
+    const delay = Math.max(
+      0,
+      oldestChunkStartedAtMs + MOTION_STREAM_WORD_FADE_DURATION_MS - streamFadeNowMs(),
+    );
+    const timer = setTimeout(() => {
+      setState((current) =>
+        settleStreamFadeChunks(current, streamFadeNowMs(), MOTION_STREAM_WORD_FADE_DURATION_MS),
+      );
+    }, delay);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [oldestChunkStart, oldestChunkStartedAtMs]);
 
   useLayoutEffect(() => {
     if (fadingEnabled) {

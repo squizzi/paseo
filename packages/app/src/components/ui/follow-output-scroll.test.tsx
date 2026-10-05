@@ -6,6 +6,9 @@ import {
   reduceFollowOutputUserScroll,
   resetFollowOutputScrollPersistence,
   resolveFollowOutputContentSizeAction,
+  resolveFollowOutputPanelFrameStyle,
+  shouldApplyFollowOutputContentRise,
+  shouldEnableFollowOutputPanelScroll,
   shouldIgnoreFollowOutputScrollReset,
   shouldStickFollowOutputToBottom,
   type FollowOutputScrollMetrics,
@@ -23,10 +26,12 @@ function metrics(
 function fakeScrollable(): FollowOutputScrollable & {
   scrollToEnd: Mock<FollowOutputScrollable["scrollToEnd"]>;
   scrollTo: Mock<FollowOutputScrollable["scrollTo"]>;
+  applyContentRise: Mock<NonNullable<FollowOutputScrollable["applyContentRise"]>>;
 } {
   return {
     scrollToEnd: vi.fn<FollowOutputScrollable["scrollToEnd"]>(),
     scrollTo: vi.fn<FollowOutputScrollable["scrollTo"]>(),
+    applyContentRise: vi.fn<NonNullable<FollowOutputScrollable["applyContentRise"]>>(),
   };
 }
 
@@ -417,5 +422,193 @@ describe("follow-output scroll persistence", () => {
     newest.attach(newestScrollable);
     newest.mount();
     expect(newestScrollable.scrollTo).toHaveBeenCalledWith({ y: 100, animated: false });
+  });
+});
+
+describe("follow-output panel frame", () => {
+  it("grows with content until the cap, then holds the cap so output can scroll", () => {
+    expect(
+      resolveFollowOutputPanelFrameStyle({
+        contentHeight: 80,
+        maxHeight: 400,
+      }),
+    ).toEqual({
+      flexGrow: 0,
+      flexShrink: 0,
+      maxHeight: 400,
+      height: 80,
+    });
+    expect(
+      shouldEnableFollowOutputPanelScroll({
+        contentHeight: 80,
+        maxHeight: 400,
+      }),
+    ).toBe(false);
+
+    expect(
+      resolveFollowOutputPanelFrameStyle({
+        contentHeight: 400,
+        maxHeight: 400,
+      }),
+    ).toEqual({
+      flexGrow: 0,
+      flexShrink: 0,
+      maxHeight: 400,
+      height: 400,
+    });
+    expect(
+      shouldEnableFollowOutputPanelScroll({
+        contentHeight: 400,
+        maxHeight: 400,
+      }),
+    ).toBe(true);
+
+    expect(
+      resolveFollowOutputPanelFrameStyle({
+        contentHeight: 520,
+        maxHeight: 400,
+      }),
+    ).toEqual({
+      flexGrow: 0,
+      flexShrink: 0,
+      maxHeight: 400,
+      height: 400,
+    });
+    expect(
+      shouldEnableFollowOutputPanelScroll({
+        contentHeight: 520,
+        maxHeight: 400,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not pin a 0-height frame before the first measurement", () => {
+    expect(
+      resolveFollowOutputPanelFrameStyle({
+        contentHeight: 0,
+        maxHeight: 400,
+      }),
+    ).toEqual({
+      flexGrow: 0,
+      flexShrink: 0,
+      maxHeight: 400,
+    });
+    expect(
+      shouldEnableFollowOutputPanelScroll({
+        contentHeight: 0,
+        maxHeight: 400,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("follow-output content rise", () => {
+  it("does not rise while the panel is still growing toward its cap", () => {
+    expect(
+      shouldApplyFollowOutputContentRise({
+        following: true,
+        hasLaidOut: true,
+        contentHeight: 240,
+        viewportHeight: 180,
+        maxHeight: 400,
+      }),
+    ).toBe(false);
+  });
+
+  it("rises once the panel is overflowing at its cap", () => {
+    expect(
+      shouldApplyFollowOutputContentRise({
+        following: true,
+        hasLaidOut: true,
+        contentHeight: 520,
+        viewportHeight: 400,
+        maxHeight: 400,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not rise when content still fits in the viewport", () => {
+    expect(
+      shouldApplyFollowOutputContentRise({
+        following: true,
+        hasLaidOut: true,
+        contentHeight: 400,
+        viewportHeight: 400,
+        maxHeight: 400,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not rise before the first layout or after the reader scrolls up", () => {
+    expect(
+      shouldApplyFollowOutputContentRise({
+        following: true,
+        hasLaidOut: false,
+        contentHeight: 520,
+        viewportHeight: 400,
+        maxHeight: 400,
+      }),
+    ).toBe(false);
+    expect(
+      shouldApplyFollowOutputContentRise({
+        following: false,
+        hasLaidOut: true,
+        contentHeight: 520,
+        viewportHeight: 400,
+        maxHeight: 400,
+      }),
+    ).toBe(false);
+  });
+
+  it("sticks below the cap without a visual rise so the card can grow", () => {
+    const scrollable = fakeScrollable();
+    const controller = createFollowOutputScrollController(true);
+    controller.attach(scrollable);
+    controller.setMaxHeight(400);
+    controller.mount();
+
+    controller.onScroll(metrics(0, 120, 120));
+    controller.onContentSizeChange(120);
+    scrollable.applyContentRise.mockClear();
+    scrollable.scrollToEnd.mockClear();
+
+    controller.onScroll(metrics(0, 180, 180));
+    controller.onContentSizeChange(240);
+    expect(scrollable.scrollToEnd).toHaveBeenCalledWith({ animated: false });
+    expect(scrollable.applyContentRise).not.toHaveBeenCalled();
+  });
+
+  it("applies a visual rise after the first layout once output overflows the cap", () => {
+    const scrollable = fakeScrollable();
+    const controller = createFollowOutputScrollController(true);
+    controller.attach(scrollable);
+    controller.setMaxHeight(400);
+    controller.mount();
+
+    controller.onScroll(metrics(0, 400, 400));
+    controller.onContentSizeChange(400);
+    expect(scrollable.applyContentRise).not.toHaveBeenCalled();
+    scrollable.scrollToEnd.mockClear();
+
+    controller.onScroll(metrics(20, 420, 400));
+    controller.onContentSizeChange(480);
+    expect(scrollable.scrollToEnd).toHaveBeenCalledWith({ animated: false });
+    expect(scrollable.applyContentRise).toHaveBeenCalledWith(80);
+  });
+
+  it("does not rise for a detached reader at the cap", () => {
+    const scrollable = fakeScrollable();
+    const controller = createFollowOutputScrollController(true);
+    controller.attach(scrollable);
+    controller.setMaxHeight(400);
+    controller.mount();
+
+    controller.onScroll(metrics(400, 800, 400));
+    controller.onContentSizeChange(800);
+    controller.onScroll(metrics(200, 800, 400));
+    scrollable.applyContentRise.mockClear();
+
+    controller.onContentSizeChange(860);
+    expect(scrollable.applyContentRise).not.toHaveBeenCalled();
   });
 });

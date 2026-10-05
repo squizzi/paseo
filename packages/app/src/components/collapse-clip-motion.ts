@@ -4,12 +4,22 @@ import { MOTION_ARRIVE_TIMING } from "@/styles/motion";
 
 export type CollapseClipResize = { action: "ignore" } | { action: "ease"; to: number };
 
+/** Expanding details must grow the transcript. flexShrink would collapse them to leftover space. */
+export const COLLAPSE_CLIP_FRAME_LAYOUT = { flexShrink: 0 } as const;
+
 export interface CollapseClipInnerStyle {
   position?: "absolute";
   left?: number;
   right?: number;
   top?: number;
   height?: ViewStyle["height"];
+}
+
+export function scrollExpandedClipIntoNearestView(node: unknown): void {
+  if (!(typeof HTMLElement === "function" && node instanceof HTMLElement)) {
+    return;
+  }
+  node.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
 /**

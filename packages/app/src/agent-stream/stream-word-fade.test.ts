@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   nextStreamFadeState,
+  settleStreamFadeChunks,
   splitFadingText,
   STREAM_TOK_KEYFRAME_CSS,
   takeMarkdownTextSourceStart,
@@ -13,56 +14,86 @@ const empty: StreamFadeState = { committed: "", chunks: [] };
 
 describe("nextStreamFadeState", () => {
   it("arrives the first dump as one frozen chunk", () => {
-    expect(nextStreamFadeState(empty, "Ran 1 command", true)).toEqual({
+    expect(nextStreamFadeState(empty, "Ran 1 command", true, 0)).toEqual({
       committed: "",
-      chunks: [{ start: 0, text: "Ran 1 command" }],
+      chunks: [{ start: 0, text: "Ran 1 command", startedAtMs: 0 }],
     });
   });
 
   it("keeps an in-flight chunk frozen when a later arrival lands", () => {
-    const fading = nextStreamFadeState(empty, "Hello", true);
-    expect(nextStreamFadeState(fading, "Hello world", true)).toEqual({
+    const fading = nextStreamFadeState(empty, "Hello", true, 0);
+    expect(nextStreamFadeState(fading, "Hello world", true, 50)).toEqual({
       committed: "",
       chunks: [
-        { start: 0, text: "Hello" },
-        { start: 5, text: " world" },
+        { start: 0, text: "Hello", startedAtMs: 0 },
+        { start: 5, text: " world", startedAtMs: 50 },
       ],
     });
   });
 
-  it("does not promote a finished suffix while the tail is still growing", () => {
-    const first = nextStreamFadeState(empty, "This line already played", true);
+  it("does not promote a finished suffix at the moment a later arrival lands", () => {
+    const first = nextStreamFadeState(empty, "This line already played", true, 0);
     const second = nextStreamFadeState(
       first,
       "This line already played through the animation",
       true,
+      50,
     );
     expect(second.committed).toBe("");
     expect(second.chunks).toEqual([
-      { start: 0, text: "This line already played" },
-      { start: 24, text: " through the animation" },
+      { start: 0, text: "This line already played", startedAtMs: 0 },
+      { start: 24, text: " through the animation", startedAtMs: 50 },
     ]);
   });
 
   it("snaps to the live text when fading is disabled", () => {
-    const fading = nextStreamFadeState(empty, "Hel", true);
-    expect(nextStreamFadeState(fading, "Hello", false)).toEqual({
+    const fading = nextStreamFadeState(empty, "Hel", true, 0);
+    expect(nextStreamFadeState(fading, "Hello", false, 50)).toEqual({
       committed: "Hello",
       chunks: [],
     });
   });
 
   it("snaps to the live text when upstream rewrites earlier content", () => {
-    const fading = nextStreamFadeState(empty, "Hello world more text", true);
-    expect(nextStreamFadeState(fading, "Hello world", true)).toEqual({
+    const fading = nextStreamFadeState(empty, "Hello world more text", true, 0);
+    expect(nextStreamFadeState(fading, "Hello world", true, 50)).toEqual({
       committed: "Hello world",
       chunks: [],
     });
   });
 
   it("returns the same state when the live text did not change", () => {
-    const fading = nextStreamFadeState(empty, "Hello", true);
-    expect(nextStreamFadeState(fading, "Hello", true)).toBe(fading);
+    const fading = nextStreamFadeState(empty, "Hello", true, 0);
+    expect(nextStreamFadeState(fading, "Hello", true, 50)).toBe(fading);
+  });
+});
+
+describe("settleStreamFadeChunks", () => {
+  it("promotes a finished prefix so a later remount cannot replay its fade", () => {
+    const first = nextStreamFadeState(empty, "This line already played", true, 0);
+    const grown = nextStreamFadeState(first, "This line already played\nand a new line", true, 50);
+    expect(settleStreamFadeChunks(grown, 400, 400)).toEqual({
+      committed: "This line already played",
+      chunks: [{ start: 24, text: "\nand a new line", startedAtMs: 50 }],
+    });
+  });
+
+  it("leaves in-flight chunks fading", () => {
+    const fading = nextStreamFadeState(empty, "Hello", true, 0);
+    expect(settleStreamFadeChunks(fading, 399, 400)).toBe(fading);
+  });
+
+  it("promotes every chunk whose envelope has elapsed", () => {
+    const first = nextStreamFadeState(empty, "One", true, 0);
+    const grown = nextStreamFadeState(first, "One two", true, 50);
+    expect(settleStreamFadeChunks(grown, 450, 400)).toEqual({
+      committed: "One two",
+      chunks: [],
+    });
+  });
+
+  it("returns the same state when there is nothing to settle", () => {
+    expect(settleStreamFadeChunks(empty, 1000, 400)).toBe(empty);
   });
 });
 
@@ -74,8 +105,8 @@ describe("splitFadingText", () => {
         sourceStart: 0,
         committedLength: 5,
         chunks: [
-          { start: 5, text: " world" },
-          { start: 11, text: " more" },
+          { start: 5, text: " world", startedAtMs: 0 },
+          { start: 11, text: " more", startedAtMs: 50 },
         ],
       }),
     ).toEqual([
@@ -92,8 +123,8 @@ describe("splitFadingText", () => {
         sourceStart: 6,
         committedLength: 5,
         chunks: [
-          { start: 5, text: " world" },
-          { start: 11, text: " more" },
+          { start: 5, text: " world", startedAtMs: 0 },
+          { start: 11, text: " more", startedAtMs: 50 },
         ],
       }),
     ).toEqual([

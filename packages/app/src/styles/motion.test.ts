@@ -101,15 +101,32 @@ describe("chat entry fade style", () => {
 
 describe("growth clip frame style", () => {
   it("leaves the axis unconstrained until a measured size arrives", () => {
-    expect(resolveGrowthClipFrameStyle(MOTION_CLIP_AUTO, "height")).toEqual({});
+    expect(resolveGrowthClipFrameStyle(MOTION_CLIP_AUTO, "height")).toEqual({
+      overflow: "visible",
+      width: "auto",
+      height: "auto",
+    });
     expect(resolveGrowthClipFrameStyle(120, "height")).toEqual({
-      height: 120,
       overflow: "hidden",
+      width: "auto",
+      height: 120,
     });
     expect(resolveGrowthClipFrameStyle(80, "width")).toEqual({
-      width: 80,
       overflow: "hidden",
+      width: 80,
+      height: "auto",
     });
+  });
+
+  it("never returns undefined for the unconstrained axis, which reanimated's web diff treats as no change and leaves the prior pixel value stuck", () => {
+    const style = resolveGrowthClipFrameStyle(MOTION_CLIP_AUTO, "height");
+    expect(style.height).not.toBeUndefined();
+    expect(style.width).not.toBeUndefined();
+  });
+
+  it("returns the same keys on every call so a reanimated web diff cannot leave a stale inline style", () => {
+    const keys = (size: number) => Object.keys(resolveGrowthClipFrameStyle(size, "height")).sort();
+    expect(keys(MOTION_CLIP_AUTO)).toEqual(keys(120));
   });
 
   it("does not clip snap growth so a stream fade cannot flash the bottom of a Thinking block", () => {

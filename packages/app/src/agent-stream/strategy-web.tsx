@@ -45,6 +45,7 @@ import {
 } from "./history-start-settle-scheduler";
 import { useChatFindSelectedMessageId } from "@/agent-stream/chat-find";
 import { getStreamItemMessageId } from "./presentation";
+import { createDomContentRise } from "./content-rise";
 import { useScrollToMessage } from "./use-scroll-to-message.web";
 
 interface CreateWebStreamStrategyInput {
@@ -54,16 +55,6 @@ interface CreateWebStreamStrategyInput {
 type ScrollBehaviorLike = "auto" | "smooth";
 
 const WEB_BOTTOM_SETTLE_TIMEOUT_MS = 200;
-// A continuous per-frame decay toward zero, not a fixed-duration tween: a
-// retarget mid-rise (common while streaming) just nudges the running offset,
-// so the existing decay continues at whatever velocity it was already at
-// instead of restarting from the curve's fast initial slope. That restart
-// was position-continuous but velocity-discontinuous, which read as small
-// stutters when updates landed faster than the tween's own duration.
-// Time-constant chosen so ~3x it (the point a decay is ~95% settled) roughly
-// matches the previous fixed rise duration's feel.
-const CONTENT_RISE_TIME_CONSTANT_MS = 110;
-const CONTENT_RISE_SETTLE_EPSILON_PX = 0.5;
 const USER_SCROLL_DELTA_EPSILON = 1;
 const BOTTOM_OVERSCROLL_TOLERANCE_PX = 2;
 const AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 64;
@@ -380,12 +371,6 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
   const lastTouchClientYRef = useRef<number | null>(null);
   const pendingAutoScrollFrameRef = useRef<number | null>(null);
   const pendingAutoScrollTimeoutRef = useRef<number | null>(null);
-  const contentRiseOffsetRef = useRef(0);
-  const contentRiseFrameRef = useRef<number | null>(null);
-  const contentRiseLastFrameTimeRef = useRef<number | null>(null);
-  const footerRiseOffsetRef = useRef(0);
-  const footerRiseFrameRef = useRef<number | null>(null);
-  const footerRiseLastFrameTimeRef = useRef<number | null>(null);
   const footerLastTopRef = useRef<number | null>(null);
   const historyStartReadyRef = useRef(false);
   const [historyStartPaginationState, setHistoryStartPaginationState] = useState(
@@ -652,63 +637,23 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     timelineNode.style.transform = offset === 0 ? "" : `translateY(${offset}px)`;
   }, []);
 
-  const stepContentRise = useCallback(
-    (timestamp: number) => {
-      const lastFrameTime = contentRiseLastFrameTimeRef.current;
-      contentRiseLastFrameTimeRef.current = timestamp;
-      // No decay on the frame that starts the loop (or resumes after a gap) --
-      // there is no elapsed interval yet to decay over.
-      const deltaMs = lastFrameTime === null ? 0 : timestamp - lastFrameTime;
-      const decay = 1 - Math.exp(-deltaMs / CONTENT_RISE_TIME_CONSTANT_MS);
-      const next = contentRiseOffsetRef.current * (1 - decay);
-      if (Math.abs(next) < CONTENT_RISE_SETTLE_EPSILON_PX) {
-        contentRiseOffsetRef.current = 0;
-        contentRiseLastFrameTimeRef.current = null;
-        contentRiseFrameRef.current = null;
-        applyContentRiseOffset(0);
-        return;
-      }
-      contentRiseOffsetRef.current = next;
-      applyContentRiseOffset(next);
-      contentRiseFrameRef.current = window.requestAnimationFrame(stepContentRise);
-    },
+  const contentRise = useMemo(
+    () => createDomContentRise(applyContentRiseOffset),
     [applyContentRiseOffset],
   );
 
   const cancelContentRise = useCallback(() => {
-    if (contentRiseFrameRef.current !== null) {
-      window.cancelAnimationFrame(contentRiseFrameRef.current);
-      contentRiseFrameRef.current = null;
-    }
-    contentRiseLastFrameTimeRef.current = null;
-    contentRiseOffsetRef.current = 0;
-    applyContentRiseOffset(0);
-  }, [applyContentRiseOffset]);
+    contentRise.cancel();
+  }, [contentRise]);
 
   const animateContentRise = useCallback(
     (distance: number) => {
-      if (
-        !timelineRef.current ||
-        Math.abs(distance) <= 0.5 ||
-        window.matchMedia("(prefers-reduced-motion: reduce)").matches
-      ) {
+      if (!timelineRef.current) {
         return;
       }
-      // Symmetric for both directions: a growing block (positive distance) rises
-      // from below into place, a shrinking one (negative distance, e.g. collapsing
-      // a tool-call group) settles from above.
-      //
-      // A retarget while already rising just nudges the running offset and lets
-      // the existing per-frame decay (stepContentRise) keep going -- it never
-      // restarts the loop, so there is no fresh "attack" slope to jar against
-      // the outgoing velocity the way replaying a fixed-duration tween would.
-      contentRiseOffsetRef.current += distance;
-      applyContentRiseOffset(contentRiseOffsetRef.current);
-      if (contentRiseFrameRef.current === null) {
-        contentRiseFrameRef.current = window.requestAnimationFrame(stepContentRise);
-      }
+      contentRise.start(distance);
     },
-    [applyContentRiseOffset, stepContentRise],
+    [contentRise],
   );
 
   useEffect(() => cancelContentRise, [cancelContentRise]);
@@ -721,54 +666,24 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     node.style.transform = offset === 0 ? "" : `translateY(${offset}px)`;
   }, []);
 
-  const stepFooterRise = useCallback(
-    (timestamp: number) => {
-      const lastFrameTime = footerRiseLastFrameTimeRef.current;
-      footerRiseLastFrameTimeRef.current = timestamp;
-      const deltaMs = lastFrameTime === null ? 0 : timestamp - lastFrameTime;
-      const decay = 1 - Math.exp(-deltaMs / CONTENT_RISE_TIME_CONSTANT_MS);
-      const next = footerRiseOffsetRef.current * (1 - decay);
-      if (Math.abs(next) < CONTENT_RISE_SETTLE_EPSILON_PX) {
-        footerRiseOffsetRef.current = 0;
-        footerRiseLastFrameTimeRef.current = null;
-        footerRiseFrameRef.current = null;
-        applyFooterRiseOffset(0);
-        return;
-      }
-      footerRiseOffsetRef.current = next;
-      applyFooterRiseOffset(next);
-      footerRiseFrameRef.current = window.requestAnimationFrame(stepFooterRise);
-    },
+  const footerRise = useMemo(
+    () => createDomContentRise(applyFooterRiseOffset),
     [applyFooterRiseOffset],
   );
 
   const cancelFooterRise = useCallback(() => {
-    if (footerRiseFrameRef.current !== null) {
-      window.cancelAnimationFrame(footerRiseFrameRef.current);
-      footerRiseFrameRef.current = null;
-    }
-    footerRiseLastFrameTimeRef.current = null;
-    footerRiseOffsetRef.current = 0;
-    applyFooterRiseOffset(0);
+    footerRise.cancel();
     footerLastTopRef.current = null;
-  }, [applyFooterRiseOffset]);
+  }, [footerRise]);
 
   const animateFooterRise = useCallback(
     (distance: number) => {
-      if (
-        !liveAuxiliaryRef.current ||
-        Math.abs(distance) <= 0.5 ||
-        window.matchMedia("(prefers-reduced-motion: reduce)").matches
-      ) {
+      if (!liveAuxiliaryRef.current) {
         return;
       }
-      footerRiseOffsetRef.current += distance;
-      applyFooterRiseOffset(footerRiseOffsetRef.current);
-      if (footerRiseFrameRef.current === null) {
-        footerRiseFrameRef.current = window.requestAnimationFrame(stepFooterRise);
-      }
+      footerRise.start(distance);
     },
-    [applyFooterRiseOffset, stepFooterRise],
+    [footerRise],
   );
 
   // The footer is glued to the bottom once the timeline fills the viewport --
@@ -784,14 +699,14 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
     if (!node) {
       return;
     }
-    const restingTop = node.getBoundingClientRect().top - footerRiseOffsetRef.current;
+    const restingTop = node.getBoundingClientRect().top - footerRise.getOffset();
     const previousRestingTop = footerLastTopRef.current;
     footerLastTopRef.current = restingTop;
     if (previousRestingTop === null) {
       return;
     }
     animateFooterRise(previousRestingTop - restingTop);
-  }, [animateFooterRise]);
+  }, [animateFooterRise, footerRise]);
 
   useEffect(() => cancelFooterRise, [cancelFooterRise]);
 

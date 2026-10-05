@@ -12,7 +12,9 @@ import Animated, {
 import { StyleSheet } from "react-native-unistyles";
 import {
   applyCollapseClipResize,
+  COLLAPSE_CLIP_FRAME_LAYOUT,
   resolveCollapseClipInnerStyle,
+  scrollExpandedClipIntoNearestView,
 } from "@/components/collapse-clip-motion";
 import { isWeb } from "@/constants/platform";
 import { useObservedSize } from "@/hooks/use-observed-size";
@@ -28,6 +30,13 @@ import {
 
 export interface ExpandableBadgeCollapseClipProps {
   expanded: boolean;
+  /**
+   * Content grows continuously (a live stream) rather than arriving all at once.
+   * The frame eases open once toward the content's current size, then settles to
+   * auto height instead of chasing every later token — the chase never finishes
+   * while the stream keeps growing the target.
+   */
+  clipGrowth?: boolean;
   renderDetails?: () => ReactNode;
   detailWrapperRef?: React.RefObject<View | null>;
   detailWrapperStyle?: StyleProp<ViewStyle>;
@@ -39,6 +48,7 @@ export interface ExpandableBadgeCollapseClipProps {
 
 export function ExpandableBadgeCollapseClip({
   expanded,
+  clipGrowth = false,
   renderDetails,
   detailWrapperRef,
   detailWrapperStyle,
@@ -73,6 +83,18 @@ export function ExpandableBadgeCollapseClip({
     setSettledOpen(true);
   }, []);
 
+  const frameRef = useRef<View | null>(null);
+  const wasSettledOpenRef = useRef(settledOpen);
+  const setFrameRef = useCallback(
+    (node: View | null) => {
+      frameRef.current = node;
+      if (detailWrapperRef) {
+        detailWrapperRef.current = node;
+      }
+    },
+    [detailWrapperRef],
+  );
+
   const unmountCollapsed = useCallback(() => {
     if (expandedRef.current) {
       return;
@@ -87,6 +109,12 @@ export function ExpandableBadgeCollapseClip({
       if (nextHeight > 0) {
         contentHeightRef.current = nextHeight;
       }
+      // A live stream keeps moving the measured target, so the chase below
+      // never finishes while it's growing — settling is handled by the
+      // instant jump to auto height in the expand effect instead.
+      if (clipGrowth) {
+        return;
+      }
       applyCollapseClipResize({
         expanded,
         settledOpen: settledOpenRef.current,
@@ -96,7 +124,7 @@ export function ExpandableBadgeCollapseClip({
         onSettled: markSettledOpen,
       });
     },
-    [expanded, height, markSettledOpen],
+    [clipGrowth, expanded, height, markSettledOpen],
   );
 
   const { setNodeRef, onLayout: onObservedLayout } = useObservedSize({
@@ -107,9 +135,17 @@ export function ExpandableBadgeCollapseClip({
 
   useLayoutEffect(() => {
     if (!expanded || !settledOpen) {
+      if (!expanded) {
+        wasSettledOpenRef.current = false;
+      }
       return;
     }
     height.value = MOTION_CLIP_AUTO;
+    const justSettled = !wasSettledOpenRef.current;
+    wasSettledOpenRef.current = true;
+    if (justSettled) {
+      scrollExpandedClipIntoNearestView(frameRef.current);
+    }
   }, [expanded, height, settledOpen]);
 
   useLayoutEffect(() => {
@@ -136,7 +172,17 @@ export function ExpandableBadgeCollapseClip({
         return;
       }
       cancelAnimation(height);
-      targetHeightRef.current = height.value > 0 ? height.value : 0;
+      if (clipGrowth) {
+        // A live stream keeps moving the measured target, so chasing it the
+        // way static content does below never finishes. Go straight to the
+        // settled, auto-height state and let the inner follow-output
+        // scroller carry growth instead of easing toward a snapshot.
+        height.value = MOTION_CLIP_AUTO;
+        settledOpenRef.current = true;
+        setSettledOpen(true);
+      } else {
+        targetHeightRef.current = height.value > 0 ? height.value : 0;
+      }
       cancelAnimation(contentProgress);
       contentProgress.value = 0;
       contentProgress.value = withDelay(
@@ -174,7 +220,15 @@ export function ExpandableBadgeCollapseClip({
         runOnJS(unmountCollapsed)();
       }
     });
-  }, [contentProgress, expanded, height, onClosingChange, reducedMotion, unmountCollapsed]);
+  }, [
+    clipGrowth,
+    contentProgress,
+    expanded,
+    height,
+    onClosingChange,
+    reducedMotion,
+    unmountCollapsed,
+  ]);
 
   const clipStyle = useAnimatedStyle(() => resolveGrowthClipFrameStyle(height.value, "height"));
   const contentStyle = useAnimatedStyle(() =>
@@ -197,7 +251,7 @@ export function ExpandableBadgeCollapseClip({
 
   return (
     <Animated.View
-      ref={detailWrapperRef}
+      ref={setFrameRef}
       style={[styles.clipFrame, detailWrapperStyle, clipStyle]}
       testID={testID}
       onPointerEnter={isWeb ? onHoverIn : undefined}
@@ -214,5 +268,6 @@ const styles = StyleSheet.create({
   clipFrame: {
     position: "relative",
     width: "100%",
+    ...COLLAPSE_CLIP_FRAME_LAYOUT,
   },
 });

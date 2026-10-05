@@ -61,6 +61,7 @@ import Svg, { Defs, LinearGradient as SvgLinearGradient, Rect, Stop } from "reac
 import { inlineUnistylesStyle } from "@/styles/unistyles-inline-style";
 import { MarkdownRenderer, type MarkdownStyles } from "@/components/markdown/renderer";
 import { ExpandableBadgeCollapseClip } from "@/components/badge-collapse-clip";
+import { COLLAPSE_CLIP_FRAME_LAYOUT } from "@/components/collapse-clip-motion";
 import {
   ChatGrowthClip,
   chatLayoutTransition,
@@ -1383,7 +1384,7 @@ const expandableBadgeStylesheet = StyleSheet.create((theme) => ({
     borderColor: theme.colors.border,
     padding: 0,
     gap: 0,
-    flexShrink: 1,
+    ...COLLAPSE_CLIP_FRAME_LAYOUT,
     minWidth: 0,
     overflow: "hidden",
     ...(isWeb ? { cursor: "auto" as const, userSelect: "text" as const } : {}),
@@ -2910,7 +2911,7 @@ export const ExpandableBadge = memo(function ExpandableBadge({
   isLastInSequence = false,
   disableOuterSpacing,
   borderlessWhenExpanded = false,
-  clipGrowth: _clipGrowth = false,
+  clipGrowth = false,
   testID,
 }: ExpandableBadgeProps) {
   const resolvedDisableOuterSpacing = useDisableOuterSpacing(disableOuterSpacing);
@@ -3197,6 +3198,7 @@ export const ExpandableBadge = memo(function ExpandableBadge({
       {hasDetailContent ? (
         <ExpandableBadgeCollapseClip
           expanded={isExpanded}
+          clipGrowth={clipGrowth}
           renderDetails={renderDetails}
           detailWrapperRef={detailWrapperRef}
           detailWrapperStyle={detailWrapperStyle}

@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment jsdom
+ */
 import { describe, expect, it, vi } from "vitest";
 import type { SharedValue } from "react-native-reanimated";
 
@@ -18,9 +21,33 @@ import { MOTION_ARRIVE_DURATION_MS } from "@/styles/motion-tokens";
 import {
   applyCollapseClipResize,
   applyGrowthSize,
+  COLLAPSE_CLIP_FRAME_LAYOUT,
   resolveCollapseClipInnerStyle,
   resolveCollapseClipResize,
+  scrollExpandedClipIntoNearestView,
 } from "./collapse-clip-motion";
+
+describe("collapse clip frame layout", () => {
+  it("does not shrink expanding details to leftover column space", () => {
+    expect(COLLAPSE_CLIP_FRAME_LAYOUT).toEqual({ flexShrink: 0 });
+  });
+});
+
+describe("scroll expanded clip into nearest view", () => {
+  it("scrolls a DOM node just far enough to reveal it", () => {
+    const scrollIntoView = vi.fn();
+    const node = document.createElement("div");
+    node.scrollIntoView = scrollIntoView;
+
+    scrollExpandedClipIntoNearestView(node);
+
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest", inline: "nearest" });
+  });
+
+  it("ignores non-elements", () => {
+    expect(() => scrollExpandedClipIntoNearestView(null)).not.toThrow();
+  });
+});
 
 describe("collapse clip inner style", () => {
   it("sizes expanding details to their content so a flex-grow ScrollView cannot collapse to the 0 clip", () => {
