@@ -12,6 +12,7 @@ import {
   observeElementOffset,
   measureElement as measureVirtualElement,
   useVirtualizer,
+  type VirtualItem,
   type Range as VirtualRange,
   type Virtualizer,
 } from "@tanstack/react-virtual";
@@ -298,6 +299,57 @@ const StreamRowContent = React.memo(function StreamRowContent({
 }) {
   return render(item, index, items);
 });
+
+interface StreamRowsHostProps {
+  virtualRows: VirtualItem[];
+  virtualRowsContainerStyle: CSSProperties;
+  renderVirtualRowStyle: (start: number) => CSSProperties;
+  measureVirtualizedRowElement: (node: HTMLDivElement | null) => (() => void) | undefined;
+  historyVirtualized: StreamItem[];
+  renderHistoryVirtualizedRow: StreamRenderInput["renderers"]["renderHistoryVirtualizedRow"];
+  mountedRows: React.ReactNode[];
+}
+
+// Extracted so the timeline clip can wrap this host without exceeding jsx-max-depth.
+function StreamRowsHost({
+  virtualRows,
+  virtualRowsContainerStyle,
+  renderVirtualRowStyle,
+  measureVirtualizedRowElement,
+  historyVirtualized,
+  renderHistoryVirtualizedRow,
+  mountedRows,
+}: StreamRowsHostProps) {
+  return (
+    <div style={streamRowsHostStyle}>
+      <div style={virtualRowsContainerStyle} />
+      {[
+        ...virtualRows.map((virtualRow) => {
+          const item = historyVirtualized[virtualRow.index];
+          if (!item) return null;
+          return (
+            <div
+              key={virtualRow.key}
+              data-index={virtualRow.index}
+              data-history-row-id={item.id}
+              data-message-id={getStreamItemMessageId(item)}
+              ref={measureVirtualizedRowElement}
+              style={renderVirtualRowStyle(virtualRow.start)}
+            >
+              <StreamRowContent
+                item={item}
+                index={virtualRow.index}
+                items={historyVirtualized}
+                render={renderHistoryVirtualizedRow}
+              />
+            </div>
+          );
+        }),
+        ...mountedRows,
+      ]}
+    </div>
+  );
+}
 
 function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: boolean }) {
   const {
@@ -1481,33 +1533,15 @@ function WebStreamViewport(props: StreamRenderInput & { isMobileBreakpoint: bool
               data-testid="agent-chat-timeline"
               style={timelineContainerStyle}
             >
-              <div style={streamRowsHostStyle}>
-                <div style={virtualRowsContainerStyle} />
-                {[
-                  ...virtualRows.map((virtualRow) => {
-                    const item = segments.historyVirtualized[virtualRow.index];
-                    if (!item) return null;
-                    return (
-                      <div
-                        key={virtualRow.key}
-                        data-index={virtualRow.index}
-                        data-history-row-id={item.id}
-                        data-message-id={getStreamItemMessageId(item)}
-                        ref={measureVirtualizedRowElement}
-                        style={renderVirtualRowStyle(virtualRow.start)}
-                      >
-                        <StreamRowContent
-                          item={item}
-                          index={virtualRow.index}
-                          items={segments.historyVirtualized}
-                          render={renderHistoryVirtualizedRow}
-                        />
-                      </div>
-                    );
-                  }),
-                  ...mountedRows,
-                ]}
-              </div>
+              <StreamRowsHost
+                virtualRows={virtualRows}
+                virtualRowsContainerStyle={virtualRowsContainerStyle}
+                renderVirtualRowStyle={renderVirtualRowStyle}
+                measureVirtualizedRowElement={measureVirtualizedRowElement}
+                historyVirtualized={segments.historyVirtualized}
+                renderHistoryVirtualizedRow={renderHistoryVirtualizedRow}
+                mountedRows={mountedRows}
+              />
             </div>
           </div>
           <div ref={handleLiveAuxiliaryRef} style={streamRowStyle}>
