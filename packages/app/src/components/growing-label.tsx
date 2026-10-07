@@ -23,6 +23,13 @@ import {
   resolveGrowthClipFrameStyle,
 } from "@/styles/motion";
 
+/**
+ * Cross-axis alignment for the width clip. The badge row can grow when hover
+ * chrome mounts (the Read tool's open-file button is 22px; the 14px label is
+ * not). `flex-start` would pin the word to the new top and jump it up 2–3px.
+ */
+export const GROWING_LABEL_ALIGN_SELF = "center" as const;
+
 interface GrowingLabelProps {
   text: string;
   style: StyleProp<TextStyle>;
@@ -85,13 +92,13 @@ export function GrowingLabel({ text, style, numberOfLines, onLayout }: GrowingLa
 
 const styles = StyleSheet.create((_theme) => ({
   clip: {
-    alignSelf: "flex-start",
+    alignSelf: GROWING_LABEL_ALIGN_SELF,
     maxWidth: "100%",
     minWidth: 0,
     overflow: "hidden",
   },
   inner: {
-    alignSelf: "flex-start",
+    alignSelf: GROWING_LABEL_ALIGN_SELF,
     flexDirection: "row",
     alignItems: "center",
     maxWidth: "100%",

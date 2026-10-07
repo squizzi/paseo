@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { GROWING_LABEL_ALIGN_SELF } from "./growing-label";
 import { splitGrowingLabel } from "./growing-label-parts";
+
+describe("GROWING_LABEL_ALIGN_SELF", () => {
+  it("centers on the cross axis so hover chrome cannot lift the label", () => {
+    expect(GROWING_LABEL_ALIGN_SELF).toBe("center");
+  });
+});
 
 describe("splitGrowingLabel", () => {
   it("grows in only the new summary suffix", () => {

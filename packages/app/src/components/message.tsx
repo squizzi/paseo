@@ -1334,6 +1334,7 @@ const expandableBadgeStylesheet = StyleSheet.create((theme) => ({
   label: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.base,
+    lineHeight: 22,
     fontWeight: theme.fontWeight.normal,
     flexShrink: 0,
   },
@@ -1349,6 +1350,7 @@ const expandableBadgeStylesheet = StyleSheet.create((theme) => ({
     minWidth: 0,
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.base,
+    lineHeight: 22,
     fontWeight: theme.fontWeight.normal,
     marginLeft: theme.spacing[2],
   },
@@ -1358,6 +1360,7 @@ const expandableBadgeStylesheet = StyleSheet.create((theme) => ({
   shimmerText: {
     color: "transparent",
     fontSize: theme.fontSize.base,
+    lineHeight: 22,
     fontWeight: theme.fontWeight.normal,
   },
   spacer: {

@@ -44,7 +44,6 @@ import type {
 import { useDiffDocumentWorkspaceCache } from "./workspace-cache";
 
 const DEFAULT_MONO_STACK = "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
-const RESIZE_SETTLE_DELAY_MS = 120;
 
 interface StickyHeaderCanvasSlot {
   section: HTMLDivElement | null;
@@ -97,7 +96,6 @@ export function DiffSurface(props: DiffSurfaceProps) {
   } | null>(null);
   const frameRef = useRef<number | null>(null);
   const activeHeaderPathRef = useRef<string | null>(null);
-  const resizeSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resizeReleaseFrameRef = useRef<number | null>(null);
   const resizePointerActiveRef = useRef(false);
   const pendingViewportRef = useRef({ width: 0, height: 0 });
@@ -356,14 +354,8 @@ export function DiffSurface(props: DiffSurfaceProps) {
     if (!root) return;
     const commitPendingViewport = () =>
       setViewport((current) => retainDiffViewport(current, pendingViewportRef.current));
-    const clearResizeSettleTimer = () => {
-      if (resizeSettleTimerRef.current === null) return;
-      clearTimeout(resizeSettleTimerRef.current);
-      resizeSettleTimerRef.current = null;
-    };
     const handlePointerDown = () => {
       resizePointerActiveRef.current = true;
-      clearResizeSettleTimer();
     };
     const handlePointerEnd = () => {
       if (!resizePointerActiveRef.current) return;
@@ -380,17 +372,12 @@ export function DiffSurface(props: DiffSurfaceProps) {
       if (!entry) return;
       const nextViewport = { width: entry.contentRect.width, height: entry.contentRect.height };
       pendingViewportRef.current = nextViewport;
+      // While dragging the resize handle, defer to handlePointerEnd so the canvas
+      // isn't repainted on every pixel of the drag. Outside a drag — a sidebar
+      // animation, a window resize — there's nothing to debounce; commit like
+      // the native surface does, or the content visibly lags behind its container.
       if (resizePointerActiveRef.current) return;
-      setViewport((currentViewport) =>
-        currentViewport.width > 0 && currentViewport.height > 0
-          ? currentViewport
-          : retainDiffViewport(currentViewport, nextViewport),
-      );
-      clearResizeSettleTimer();
-      resizeSettleTimerRef.current = setTimeout(() => {
-        resizeSettleTimerRef.current = null;
-        commitPendingViewport();
-      }, RESIZE_SETTLE_DELAY_MS);
+      setViewport((currentViewport) => retainDiffViewport(currentViewport, nextViewport));
     });
     observer.observe(root);
     window.addEventListener("pointerdown", handlePointerDown, { capture: true });
@@ -398,7 +385,6 @@ export function DiffSurface(props: DiffSurfaceProps) {
     window.addEventListener("pointercancel", handlePointerEnd, { capture: true });
     return () => {
       observer.disconnect();
-      clearResizeSettleTimer();
       if (resizeReleaseFrameRef.current !== null)
         cancelAnimationFrame(resizeReleaseFrameRef.current);
       window.removeEventListener("pointerdown", handlePointerDown, { capture: true });
