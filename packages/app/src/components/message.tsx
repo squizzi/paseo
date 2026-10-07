@@ -1357,6 +1357,14 @@ const expandableBadgeStylesheet = StyleSheet.create((theme) => ({
   secondaryLabelActive: {
     color: theme.colors.foreground,
   },
+  secondaryLabelPlaceholder: {
+    flexShrink: 0,
+    width: 64,
+    height: 12,
+    borderRadius: theme.borderRadius.full,
+    marginLeft: theme.spacing[2],
+    backgroundColor: theme.colors.surface3,
+  },
   shimmerText: {
     color: "transparent",
     fontSize: theme.fontSize.base,
@@ -2591,6 +2599,12 @@ interface ExpandableBadgeProps {
   isLastInSequence?: boolean;
   disableOuterSpacing?: boolean;
   borderlessWhenExpanded?: boolean;
+  /**
+   * The specific summary (command, query, path) hasn't arrived yet even
+   * though the badge itself has — show a placeholder instead of leaving the
+   * secondary label slot empty until it pops in on its own.
+   */
+  isAwaitingSecondaryLabel?: boolean;
   testID?: string;
 }
 
@@ -2599,6 +2613,37 @@ interface ExpandableBadgeSecondaryLabelProps {
   secondaryLabelStyle: StyleProp<TextStyle>;
   shouldMeasureWebShimmer: boolean;
   onSecondaryLayout: (event: LayoutChangeEvent) => void;
+  isAwaitingSecondaryLabel: boolean;
+}
+
+/**
+ * The icon and primary label resolve from the tool name alone, so they paint
+ * on the first frame. The secondary label (the specific command, query, path)
+ * depends on a detail payload that arrives in a later event — without this,
+ * it pops in on its own a beat after the rest of the badge.
+ */
+function ExpandableBadgeSecondaryLabelPlaceholder() {
+  const animationsEnabled = useAnimationsEnabled();
+  const opacity = useSharedValue(0.5);
+
+  useEffect(() => {
+    if (!animationsEnabled) {
+      cancelAnimation(opacity);
+      opacity.value = 0.5;
+      return;
+    }
+    opacity.value = withRepeat(withTiming(1, { duration: 700 }), -1, true);
+    return () => cancelAnimation(opacity);
+  }, [animationsEnabled, opacity]);
+
+  const style = useAnimatedStyle(() => ({ opacity: opacity.value }));
+
+  return (
+    <Animated.View
+      style={[expandableBadgeStylesheet.secondaryLabelPlaceholder, style]}
+      testID="tool-call-summary-placeholder"
+    />
+  );
 }
 
 function ExpandableBadgeSecondaryLabel({
@@ -2606,9 +2651,10 @@ function ExpandableBadgeSecondaryLabel({
   secondaryLabelStyle,
   shouldMeasureWebShimmer,
   onSecondaryLayout,
+  isAwaitingSecondaryLabel,
 }: ExpandableBadgeSecondaryLabelProps) {
   if (!secondaryLabel) {
-    return null;
+    return isAwaitingSecondaryLabel ? <ExpandableBadgeSecondaryLabelPlaceholder /> : null;
   }
   return (
     <Text
@@ -2678,6 +2724,7 @@ interface ExpandableBadgeLabelRowProps {
   onLabelRowLayout: (event: LayoutChangeEvent) => void;
   onLabelLayout: (event: LayoutChangeEvent) => void;
   onSecondaryLayout: (event: LayoutChangeEvent) => void;
+  isAwaitingSecondaryLabel?: boolean;
   showOpenFileButton: boolean;
   isOpenFileHovered: boolean;
   onOpenFilePress: (event: GestureResponderEvent) => void;
@@ -2705,6 +2752,7 @@ function ExpandableBadgeLabelRow({
   onLabelRowLayout,
   onLabelLayout,
   onSecondaryLayout,
+  isAwaitingSecondaryLabel = false,
   showOpenFileButton,
   isOpenFileHovered,
   onOpenFilePress,
@@ -2729,6 +2777,7 @@ function ExpandableBadgeLabelRow({
         secondaryLabelStyle={secondaryLabelStyle}
         shouldMeasureWebShimmer={shouldMeasureWebShimmer}
         onSecondaryLayout={onSecondaryLayout}
+        isAwaitingSecondaryLabel={isAwaitingSecondaryLabel}
       />
       {showOpenFileButton ? (
         <Pressable
@@ -2915,6 +2964,7 @@ export const ExpandableBadge = memo(function ExpandableBadge({
   disableOuterSpacing,
   borderlessWhenExpanded = false,
   clipGrowth = false,
+  isAwaitingSecondaryLabel,
   testID,
 }: ExpandableBadgeProps) {
   const resolvedDisableOuterSpacing = useDisableOuterSpacing(disableOuterSpacing);
@@ -3190,6 +3240,7 @@ export const ExpandableBadge = memo(function ExpandableBadge({
             onLabelRowLayout={handleLabelRowLayout}
             onLabelLayout={handleLabelLayout}
             onSecondaryLayout={handleSecondaryLayout}
+            isAwaitingSecondaryLabel={isAwaitingSecondaryLabel}
             showOpenFileButton={Boolean(onOpenFile && isHovered)}
             isOpenFileHovered={isOpenFileHovered}
             onOpenFilePress={handleOpenFilePress}
@@ -3227,6 +3278,7 @@ function areExpandableBadgePropsEqual(previous: ExpandableBadgeProps, next: Expa
   if (previous.disableOuterSpacing !== next.disableOuterSpacing) return false;
   if (previous.borderlessWhenExpanded !== next.borderlessWhenExpanded) return false;
   if (previous.clipGrowth !== next.clipGrowth) return false;
+  if (previous.isAwaitingSecondaryLabel !== next.isAwaitingSecondaryLabel) return false;
   if (previous.testID !== next.testID) return false;
   if (previous.onToggle !== next.onToggle) return false;
   if (previous.onOpenFile !== next.onOpenFile) return false;
@@ -3420,6 +3472,7 @@ export const ToolCall = memo(function ToolCall({
       renderDetails={presentation.canOpenDetails && shouldRenderInline ? renderDetails : undefined}
       isLoading={status === "running" || status === "executing"}
       clipGrowth={clipGrowth}
+      isAwaitingSecondaryLabel={presentation.isLoadingDetails}
       isError={status === "failed"}
       isLastInSequence={isLastInSequence}
       disableOuterSpacing={disableOuterSpacing}
