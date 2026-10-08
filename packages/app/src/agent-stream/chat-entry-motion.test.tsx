@@ -377,4 +377,51 @@ describe("ChatGrowthClip", () => {
     });
     expect(mounts).toHaveBeenCalledTimes(1);
   });
+
+  it("does not replay the initial rise when clipping turns back on over painted content", () => {
+    const observedHeight = { current: 80 };
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe(node: Element) {
+          Object.defineProperty(node, "getBoundingClientRect", {
+            configurable: true,
+            value: () => ({ height: observedHeight.current, width: 320 }),
+          });
+        }
+        disconnect() {}
+        unobserve() {}
+      },
+    );
+
+    act(() => {
+      root?.render(
+        <ChatGrowthClip enabled easeInitial testID="growth-clip">
+          <div>details</div>
+        </ChatGrowthClip>,
+      );
+    });
+    expect(vi.mocked(withTiming)).toHaveBeenCalledWith(80, expect.anything());
+
+    act(() => {
+      root?.render(
+        <ChatGrowthClip enabled={false} easeInitial testID="growth-clip">
+          <div>details</div>
+        </ChatGrowthClip>,
+      );
+    });
+    vi.mocked(withTiming).mockClear();
+    observedHeight.current = 140;
+
+    act(() => {
+      root?.render(
+        <ChatGrowthClip enabled easeInitial testID="growth-clip">
+          <div>details</div>
+          <div>new line</div>
+        </ChatGrowthClip>,
+      );
+    });
+
+    expect(vi.mocked(withTiming)).not.toHaveBeenCalled();
+  });
 });

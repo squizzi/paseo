@@ -304,7 +304,9 @@ export function ChatGrowthClip({
     }
     cancelAnimation(height);
     height.value = MOTION_CLIP_AUTO;
-    contentHeightRef.current = null;
+    // Keep the last measured height. Clearing it made the next enable treat
+    // already-painted rows as a first paint and ease from 0 — the list flashed
+    // before a follow-up line landed.
   }, [clipEnabled, height]);
 
   // Same wrapper tree whether the clip is on or off. Swapping View for
